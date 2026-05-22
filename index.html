@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Melton Snap">
+  <meta name="theme-color" content="#0f1419">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Melton Snap</title>
+</head>
+<body>
+
+  <header id="header">
+    <div class="title">Melton Snap</div>
+    <div id="jobLabel" class="job-label">—</div>
+  </header>
+
+  <main id="captureView">
+    <section class="field">
+      <label for="roomPicker">Room / Area</label>
+      <select id="roomPicker" class="dropdown">
+        <option value="">Select a room…</option>
+      </select>
+    </section>
+
+    <section class="field">
+      <label>Tag</label>
+      <div id="tagChips" class="chip-row"></div>
+    </section>
+
+    <section class="field">
+      <label for="caption">Caption (optional)</label>
+      <input id="caption" type="text" maxlength="200" placeholder="Short note…" autocomplete="off">
+    </section>
+
+    <button id="shutterBtn" class="shutter" disabled>
+      <span class="shutter-icon">📸</span>
+      <span class="shutter-label">Take Photo</span>
+    </button>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+
+    <p id="hint" class="hint">Pick a room and a tag, then tap the shutter.</p>
+  </main>
+
+  <main id="reviewView" hidden>
+    <section class="preview-wrap">
+      <img id="previewImg" alt="captured photo">
+      <div id="reviewMeta" class="review-meta"></div>
+    </section>
+
+    <div class="action-row">
+      <button id="retakeBtn" class="ghost">Retake</button>
+      <button id="shareBtn" class="primary">Share to OneDrive</button>
+    </div>
+
+    <p class="hint">After sharing, pick "Save to OneDrive" from the share sheet.</p>
+  </main>
+
+  <main id="errorView" hidden>
+    <h2>Setup needed</h2>
+    <p id="errorMsg"></p>
+    <p class="hint small">Open this app via the link your foreman sent you. The link includes your job and name.</p>
+  </main>
+
+  <details id="debug" class="debug">
+    <summary>Debug log</summary>
+    <pre id="log"></pre>
+  </details>
+
+  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
