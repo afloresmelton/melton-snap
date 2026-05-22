@@ -88,7 +88,7 @@ main {
   letter-spacing: 0.5px;
 }
 
-.dropdown, input[type="text"] {
+.dropdown, input[type="text"], textarea {
   width: 100%;
   padding: 14px 14px;
   font-size: 1rem;
@@ -98,6 +98,13 @@ main {
   color: var(--text);
   appearance: none;
   -webkit-appearance: none;
+  font-family: inherit;
+}
+textarea {
+  resize: vertical;
+  min-height: 80px;
+  word-break: break-all;
+  line-height: 1.4;
 }
 .dropdown {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b949e' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
@@ -105,9 +112,14 @@ main {
   background-position: right 16px center;
   padding-right: 38px;
 }
-.dropdown:focus, input[type="text"]:focus {
+.dropdown:focus, input[type="text"]:focus, textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+.error-hint {
+  color: var(--err);
+  font-weight: 600;
 }
 
 /* ── Chips ──────────────────────────────────────────────── */

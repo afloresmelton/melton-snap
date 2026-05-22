@@ -60,6 +60,24 @@
     <p class="hint">After sharing, pick "Save to OneDrive" from the share sheet.</p>
   </main>
 
+  <main id="bootstrapView" hidden>
+    <h2>First-time setup</h2>
+    <p class="hint">Paste the full link your foreman sent you. You'll only need to do this once on this device.</p>
+
+    <section class="field">
+      <label for="bootstrapInput">Foreman's link</label>
+      <textarea id="bootstrapInput" rows="4" autocapitalize="off" autocorrect="off" autocomplete="off"
+        placeholder="https://…/?job=964&amp;me=alex&amp;rooms=…"></textarea>
+    </section>
+
+    <div class="action-row">
+      <button id="bootstrapPasteBtn" class="ghost">📋 Paste</button>
+      <button id="bootstrapSubmit" class="primary">Use this configuration</button>
+    </div>
+
+    <p id="bootstrapError" class="hint error-hint" hidden></p>
+  </main>
+
   <main id="errorView" hidden>
     <h2>Setup needed</h2>
     <p id="errorMsg"></p>

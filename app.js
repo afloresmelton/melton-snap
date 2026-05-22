@@ -83,14 +83,7 @@ function boot() {
   log(`Config: job=${CFG.job} me=${CFG.me} rooms=${CFG.rooms.length} tags=${CFG.tags.length}${CFG._fromCache ? ' (from cache)' : ' (from URL)'}`);
 
   if (!CFG.job || !CFG.me) {
-    const missing = [!CFG.job && 'job', !CFG.me && 'me'].filter(Boolean).join(' and ');
-    showError(
-      `This app needs the full link your foreman sent you — it includes <code>${missing}</code> in the URL.<br><br>` +
-      'Example URL format:<br>' +
-      '<code style="font-size:0.82em;word-break:break-all">' +
-      '…/?<strong>job=</strong>964&amp;<strong>me=</strong>alex&amp;rooms=IDF+Room,Main+Elec,Site' +
-      '</code>'
-    );
+    showBootstrap();
     return;
   }
 
@@ -149,9 +142,103 @@ function boot() {
 function showError(html) {
   document.getElementById('captureView').hidden = true;
   document.getElementById('reviewView').hidden = true;
+  document.getElementById('bootstrapView').hidden = true;
   const errView = document.getElementById('errorView');
   errView.hidden = false;
   document.getElementById('errorMsg').innerHTML = html;
+}
+
+function showBootstrap() {
+  document.getElementById('captureView').hidden = true;
+  document.getElementById('reviewView').hidden = true;
+  document.getElementById('errorView').hidden = true;
+  document.getElementById('bootstrapView').hidden = false;
+
+  const submitBtn = document.getElementById('bootstrapSubmit');
+  const pasteBtn = document.getElementById('bootstrapPasteBtn');
+  const input = document.getElementById('bootstrapInput');
+  const errorEl = document.getElementById('bootstrapError');
+
+  // Avoid double-binding on subsequent calls
+  if (submitBtn.dataset.bound) return;
+  submitBtn.dataset.bound = '1';
+
+  pasteBtn.addEventListener('click', async () => {
+    errorEl.hidden = true;
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      bootstrapError('Clipboard access not available — paste manually into the box above.');
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        input.value = text;
+        log(`Pasted from clipboard (${text.length} chars)`);
+      } else {
+        bootstrapError('Clipboard was empty.');
+      }
+    } catch (err) {
+      bootstrapError(`Clipboard read denied: ${err.message}. Paste manually instead.`);
+    }
+  });
+
+  submitBtn.addEventListener('click', () => {
+    errorEl.hidden = true;
+    const text = input.value.trim();
+    if (!text) {
+      bootstrapError('Paste the link first.');
+      return;
+    }
+
+    let params;
+    try {
+      const u = new URL(text);
+      params = u.searchParams;
+    } catch {
+      // Not a full URL — try treating as query string
+      const idx = text.indexOf('?');
+      try {
+        params = new URLSearchParams(idx >= 0 ? text.slice(idx + 1) : text);
+      } catch {
+        bootstrapError('Could not parse that link. Make sure you pasted the full URL.');
+        return;
+      }
+    }
+
+    const job = params.get('job') || '';
+    const me = params.get('me') || '';
+    if (!job || !me) {
+      const missing = [!job && '"job"', !me && '"me"'].filter(Boolean).join(' and ');
+      bootstrapError(`Link is missing required value(s): ${missing}.`);
+      return;
+    }
+
+    const config = {
+      job,
+      jobName: params.get('name') || '',
+      me,
+      rooms: (params.get('rooms') || '').split(',').map(s => s.trim()).filter(Boolean),
+      tags: params.get('tags')
+        ? params.get('tags').split(',').map(s => s.trim()).filter(Boolean)
+        : DEFAULTS.tags
+    };
+
+    try {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+    } catch (err) {
+      bootstrapError(`Could not save config: ${err.message}`);
+      return;
+    }
+
+    log(`✓ Bootstrap saved config: job=${config.job} me=${config.me}`);
+    // Reload so boot() picks up the saved config cleanly
+    location.replace('./');
+  });
+
+  function bootstrapError(msg) {
+    errorEl.textContent = msg;
+    errorEl.hidden = false;
+  }
 }
 
 function updateShutter() {
