@@ -21,6 +21,7 @@ function parseConfig() {
     job: params.get('job') || '',
     jobName: params.get('name') || '',
     me: params.get('me') || '',
+    mapUrl: params.get('map') || '',
     rooms: (params.get('rooms') || '').split(',').map(s => s.trim()).filter(Boolean),
     tags: params.get('tags')
       ? params.get('tags').split(',').map(s => s.trim()).filter(Boolean)
@@ -135,6 +136,16 @@ function boot() {
 
   // Try to grab GPS in the background (non-blocking, non-required)
   requestGPS();
+
+  // Reset view button for the map
+  document.getElementById('resetViewBtn').addEventListener('click', () => {
+    if (window.floorplanCanvas) window.floorplanCanvas.resetView();
+  });
+
+  // Load map data if configured
+  if (CFG.mapUrl) {
+    loadMapData(CFG.mapUrl);
+  }
 
   updateShutter();
 }
@@ -455,6 +466,207 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 }
 function escapeAttr(s) { return escapeHtml(s); }
+
+// ── Floorplan / map ──────────────────────────────────────────────────────
+
+async function loadMapData(mapUrl) {
+  const statusEl = document.getElementById('mapStatus');
+  const sectionEl = document.getElementById('mapSection');
+  sectionEl.hidden = false;
+  statusEl.textContent = `Loading floorplan…`;
+  log(`Fetching map config from ${mapUrl}`);
+
+  try {
+    const resolved = new URL(mapUrl, location.href);
+    const res = await fetch(resolved.href);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    log(`✓ Map config loaded — ${data.floors?.length || 0} floor(s)`);
+
+    if (!data.floors || data.floors.length === 0) {
+      statusEl.textContent = `No floors in map config.`;
+      return;
+    }
+
+    const firstFloor = data.floors[0];
+    const imageUrl = new URL(firstFloor.image, resolved).href;
+    const canvasEl = document.getElementById('floorplanCanvas');
+
+    window.floorplanCanvas = new FloorplanCanvas(canvasEl, imageUrl, {
+      floor: firstFloor,
+      onReady: () => {
+        statusEl.textContent = `${firstFloor.name} — ${firstFloor.rooms?.length || 0} rooms (tap detection coming in Phase 1.2c)`;
+      },
+      onError: (err) => {
+        statusEl.textContent = `Couldn't load floorplan image: ${err.message}`;
+      }
+    });
+
+    // Floor tabs if multi-floor
+    if (data.floors.length > 1) {
+      const tabsEl = document.getElementById('floorTabs');
+      tabsEl.hidden = false;
+      tabsEl.innerHTML = data.floors.map((f, i) =>
+        `<button type="button" class="chip${i === 0 ? ' active' : ''}" data-floor-idx="${i}">${escapeHtml(f.name)}</button>`
+      ).join('');
+      // Floor switching wired in Phase 1.2d
+    }
+  } catch (err) {
+    statusEl.textContent = `Map load failed: ${err.message}`;
+    log(`✗ Map load failed: ${err.message}`);
+  }
+}
+
+class FloorplanCanvas {
+  constructor(canvas, imgUrl, opts = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.opts = opts;
+    this.transform = { x: 0, y: 0, scale: 1 };
+    this.pointers = new Map();
+    this.pinchStart = null;
+    this.loaded = false;
+    this.dpr = window.devicePixelRatio || 1;
+
+    this.image = new Image();
+    // SVG needs explicit dimensions sometimes — set crossOrigin if needed
+    this.image.onload = () => {
+      this.loaded = true;
+      this.resizeToContainer();
+      this.fit();
+      this.render();
+      if (opts.onReady) opts.onReady();
+    };
+    this.image.onerror = () => {
+      if (opts.onError) opts.onError(new Error('image load failed'));
+    };
+    this.image.src = imgUrl;
+
+    this.attachEvents();
+
+    // Re-fit on viewport resize
+    this._resizeObserver = new ResizeObserver(() => {
+      this.resizeToContainer();
+      this.fit();
+      this.render();
+    });
+    this._resizeObserver.observe(this.canvas.parentElement);
+  }
+
+  resizeToContainer() {
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = Math.max(1, Math.round(rect.width * this.dpr));
+    this.canvas.height = Math.max(1, Math.round(rect.height * this.dpr));
+  }
+
+  fit() {
+    if (!this.loaded) return;
+    const cw = this.canvas.width, ch = this.canvas.height;
+    const iw = this.image.naturalWidth || this.opts.floor?.image_width || 1000;
+    const ih = this.image.naturalHeight || this.opts.floor?.image_height || 700;
+    const scale = Math.min(cw / iw, ch / ih) * 0.96;
+    this.transform.scale = scale;
+    this.transform.x = (cw - iw * scale) / 2;
+    this.transform.y = (ch - ih * scale) / 2;
+  }
+
+  resetView() {
+    this.fit();
+    this.render();
+  }
+
+  render() {
+    if (!this.loaded) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.translate(this.transform.x, this.transform.y);
+    ctx.scale(this.transform.scale, this.transform.scale);
+    const iw = this.image.naturalWidth || this.opts.floor?.image_width || 1000;
+    const ih = this.image.naturalHeight || this.opts.floor?.image_height || 700;
+    ctx.drawImage(this.image, 0, 0, iw, ih);
+    ctx.restore();
+  }
+
+  attachEvents() {
+    const c = this.canvas;
+    c.addEventListener('pointerdown', e => this.onPointerDown(e));
+    c.addEventListener('pointermove', e => this.onPointerMove(e));
+    c.addEventListener('pointerup', e => this.onPointerUp(e));
+    c.addEventListener('pointercancel', e => this.onPointerUp(e));
+    c.addEventListener('pointerleave', e => this.onPointerUp(e));
+    c.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+  }
+
+  _clientToCanvas(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * this.dpr,
+      y: (clientY - rect.top) * this.dpr
+    };
+  }
+
+  onPointerDown(e) {
+    e.preventDefault();
+    this.canvas.setPointerCapture(e.pointerId);
+    const p = this._clientToCanvas(e.clientX, e.clientY);
+    this.pointers.set(e.pointerId, p);
+
+    if (this.pointers.size === 2) {
+      const [a, b] = [...this.pointers.values()];
+      this.pinchStart = {
+        dist: Math.hypot(b.x - a.x, b.y - a.y),
+        scale: this.transform.scale,
+        center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        tx: this.transform.x,
+        ty: this.transform.y
+      };
+    }
+  }
+
+  onPointerMove(e) {
+    if (!this.pointers.has(e.pointerId)) return;
+    const prev = this.pointers.get(e.pointerId);
+    const next = this._clientToCanvas(e.clientX, e.clientY);
+    this.pointers.set(e.pointerId, next);
+
+    if (this.pointers.size === 1) {
+      this.transform.x += next.x - prev.x;
+      this.transform.y += next.y - prev.y;
+      this.render();
+    } else if (this.pointers.size === 2 && this.pinchStart) {
+      const [a, b] = [...this.pointers.values()];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const ratio = dist / this.pinchStart.dist;
+      const newScale = Math.max(0.1, Math.min(10, this.pinchStart.scale * ratio));
+      const change = newScale / this.pinchStart.scale;
+      const cx = this.pinchStart.center.x;
+      const cy = this.pinchStart.center.y;
+      this.transform.scale = newScale;
+      this.transform.x = cx - (cx - this.pinchStart.tx) * change;
+      this.transform.y = cy - (cy - this.pinchStart.ty) * change;
+      this.render();
+    }
+  }
+
+  onPointerUp(e) {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinchStart = null;
+  }
+
+  onWheel(e) {
+    e.preventDefault();
+    const p = this._clientToCanvas(e.clientX, e.clientY);
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newScale = Math.max(0.1, Math.min(10, this.transform.scale * factor));
+    const change = newScale / this.transform.scale;
+    this.transform.scale = newScale;
+    this.transform.x = p.x - (p.x - this.transform.x) * change;
+    this.transform.y = p.y - (p.y - this.transform.y) * change;
+    this.render();
+  }
+}
 
 // ── Service worker registration ──────────────────────────────────────────
 

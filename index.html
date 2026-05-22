@@ -27,6 +27,18 @@
       </select>
     </section>
 
+    <section id="mapSection" class="field" hidden>
+      <label>Floorplan
+        <span class="label-aside">— pinch to zoom, drag to pan</span>
+      </label>
+      <div id="floorTabs" class="chip-row" hidden></div>
+      <div class="canvas-wrap">
+        <canvas id="floorplanCanvas"></canvas>
+        <button type="button" id="resetViewBtn" class="canvas-overlay-btn" title="Reset view">⤢</button>
+      </div>
+      <p id="mapStatus" class="hint small"></p>
+    </section>
+
     <section class="field">
       <label>Tag</label>
       <div id="tagChips" class="chip-row"></div>

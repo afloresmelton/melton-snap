@@ -122,6 +122,51 @@ textarea {
   font-weight: 600;
 }
 
+/* ── Floorplan canvas ───────────────────────────────────── */
+
+.label-aside {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 10 / 7;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#floorplanCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#floorplanCanvas:active { cursor: grabbing; }
+
+.canvas-overlay-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(26, 33, 40, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
 /* ── Chips ──────────────────────────────────────────────── */
 
 .chip-row {

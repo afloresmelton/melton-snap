@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "job": "964",
+  "name": "Cerberus WSD IB3 (test map)",
+  "tags": ["Rough-In", "Finish", "Inspection", "Deficiency", "Before", "After", "Material"],
+  "floors": [
+    {
+      "id": "1",
+      "name": "Floor 1",
+      "image": "floor-1.svg",
+      "image_width": 1000,
+      "image_height": 700,
+      "rooms": [
+        {
+          "id": "104",
+          "name": "IDF Room",
+          "polygon": [[50, 50], [300, 50], [300, 220], [50, 220]]
+        },
+        {
+          "id": "105",
+          "name": "Main Electrical",
+          "polygon": [[300, 50], [600, 50], [600, 220], [300, 220]]
+        },
+        {
+          "id": "106",
+          "name": "Server Room",
+          "polygon": [[600, 50], [950, 50], [950, 220], [600, 220]]
+        },
+        {
+          "id": "107",
+          "name": "Open Office",
+          "polygon": [[50, 220], [950, 220], [950, 450], [50, 450]]
+        },
+        {
+          "id": "108",
+          "name": "Storage",
+          "polygon": [[50, 450], [300, 450], [300, 650], [50, 650]]
+        },
+        {
+          "id": "109",
+          "name": "Break Room",
+          "polygon": [[300, 450], [600, 450], [600, 650], [300, 650]]
+        },
+        {
+          "id": "110",
+          "name": "Loading Dock",
+          "polygon": [[600, 450], [950, 450], [950, 650], [600, 650]]
+        }
+      ]
+    }
+  ],
+  "fallback_rooms": ["Site", "Roof", "Parking", "Other"]
+}
