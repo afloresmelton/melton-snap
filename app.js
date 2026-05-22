@@ -7,9 +7,17 @@ const DEFAULTS = {
   rooms: []
 };
 
+const CONFIG_STORAGE_KEY = 'melton-snap-config';
+
 function parseConfig() {
   const params = new URLSearchParams(location.search);
-  return {
+
+  // Reset escape hatch — `?reset=1` clears saved config and forces re-bootstrap
+  if (params.get('reset') === '1') {
+    localStorage.removeItem(CONFIG_STORAGE_KEY);
+  }
+
+  const fromURL = {
     job: params.get('job') || '',
     jobName: params.get('name') || '',
     me: params.get('me') || '',
@@ -18,6 +26,30 @@ function parseConfig() {
       ? params.get('tags').split(',').map(s => s.trim()).filter(Boolean)
       : DEFAULTS.tags
   };
+
+  // URL is the source of truth when it has valid config — save for next launch
+  if (fromURL.job && fromURL.me) {
+    try {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(fromURL));
+    } catch (err) {
+      // localStorage might fail in private mode; not fatal
+    }
+    return fromURL;
+  }
+
+  // URL is bare (e.g., launched from home-screen icon via manifest start_url).
+  // Fall back to last saved config so the icon "just works."
+  try {
+    const saved = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || 'null');
+    if (saved && saved.job && saved.me) {
+      saved._fromCache = true;
+      return saved;
+    }
+  } catch (err) {
+    // Corrupt localStorage; ignore
+  }
+
+  return fromURL; // empty -> error view
 }
 
 const CFG = parseConfig();
@@ -48,7 +80,7 @@ function boot() {
   log(`UA: ${navigator.userAgent.slice(0, 70)}…`);
   log(`navigator.share files: ${navigator.canShare ? 'check at share' : 'MISSING'}`);
   log(`piexif: ${typeof piexif === 'object'}`);
-  log(`Config: job=${CFG.job} me=${CFG.me} rooms=${CFG.rooms.length} tags=${CFG.tags.length}`);
+  log(`Config: job=${CFG.job} me=${CFG.me} rooms=${CFG.rooms.length} tags=${CFG.tags.length}${CFG._fromCache ? ' (from cache)' : ' (from URL)'}`);
 
   if (!CFG.job || !CFG.me) {
     const missing = [!CFG.job && 'job', !CFG.me && 'me'].filter(Boolean).join(' and ');
