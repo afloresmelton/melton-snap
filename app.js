@@ -478,6 +478,21 @@ function escapeAttr(s) { return escapeHtml(s); }
 
 // ── Floorplan / map ──────────────────────────────────────────────────────
 
+// Ray-casting point-in-polygon. Polygon is array of [x, y] pairs.
+function pointInPolygon(x, y, polygon) {
+  if (!Array.isArray(polygon) || polygon.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+
 async function loadMapData(mapUrl) {
   const statusEl = document.getElementById('mapStatus');
   const sectionEl = document.getElementById('mapSection');
@@ -501,13 +516,22 @@ async function loadMapData(mapUrl) {
     const imageUrl = new URL(firstFloor.image, resolved).href;
     const canvasEl = document.getElementById('floorplanCanvas');
 
+    const fpReadyText = `${firstFloor.name} — tap a room`;
     window.floorplanCanvas = new FloorplanCanvas(canvasEl, imageUrl, {
       floor: firstFloor,
       onReady: () => {
-        statusEl.textContent = `${firstFloor.name} — ${firstFloor.rooms?.length || 0} rooms (tap detection coming in Phase 1.2c)`;
+        statusEl.textContent = fpReadyText;
       },
       onError: (err) => {
         statusEl.textContent = `Couldn't load floorplan image: ${err.message}`;
+      },
+      onRoomSelected: (room) => {
+        if (room) {
+          statusEl.innerHTML = `Selected: <strong>${escapeHtml(room.name)}</strong>`;
+          log(`Room selected via map: ${room.name} (${room.id})`);
+        } else {
+          statusEl.textContent = fpReadyText;
+        }
       }
     });
 
@@ -534,6 +558,10 @@ class FloorplanCanvas {
     this.transform = { x: 0, y: 0, scale: 1 };
     this.pointers = new Map();
     this.pinchStart = null;
+    this.tapStart = null;          // tracks potential single-tap origin
+    this.rooms = opts.floor?.rooms || [];
+    this.selectedRoomId = null;
+    this.onRoomSelected = opts.onRoomSelected || (() => {});
     this.loaded = false;
     this.dpr = window.devicePixelRatio || 1;
 
@@ -595,7 +623,58 @@ class FloorplanCanvas {
     const iw = this.image.naturalWidth || this.opts.floor?.image_width || 1000;
     const ih = this.image.naturalHeight || this.opts.floor?.image_height || 700;
     ctx.drawImage(this.image, 0, 0, iw, ih);
+
+    // Overlay room polygons (faint outline always; bold fill on selection)
+    const invScale = 1 / this.transform.scale;
+    for (const room of this.rooms) {
+      if (!Array.isArray(room.polygon) || room.polygon.length < 3) continue;
+      const isSelected = room.id === this.selectedRoomId;
+      const pts = room.polygon;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+
+      if (isSelected) {
+        ctx.fillStyle = 'rgba(47, 129, 247, 0.32)';
+        ctx.fill();
+        ctx.strokeStyle = '#2f81f7';
+        ctx.lineWidth = 5 * invScale;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(47, 129, 247, 0.45)';
+        ctx.lineWidth = 2 * invScale;
+        ctx.stroke();
+      }
+    }
+
     ctx.restore();
+  }
+
+  selectRoom(roomId) {
+    if (this.selectedRoomId === roomId) return;
+    this.selectedRoomId = roomId;
+    this.render();
+    const room = this.rooms.find(r => r.id === roomId) || null;
+    this.onRoomSelected(room);
+  }
+
+  _canvasToImage(canvasX, canvasY) {
+    return {
+      x: (canvasX - this.transform.x) / this.transform.scale,
+      y: (canvasY - this.transform.y) / this.transform.scale
+    };
+  }
+
+  _handleTap(canvasX, canvasY) {
+    const { x, y } = this._canvasToImage(canvasX, canvasY);
+    for (const room of this.rooms) {
+      if (pointInPolygon(x, y, room.polygon)) {
+        this.selectRoom(room.id);
+        return;
+      }
+    }
+    // Tap on empty area — leave existing selection alone
   }
 
   attachEvents() {
@@ -622,6 +701,14 @@ class FloorplanCanvas {
     const p = this._clientToCanvas(e.clientX, e.clientY);
     this.pointers.set(e.pointerId, p);
 
+    if (this.pointers.size === 1) {
+      // Track potential tap — pointerup before threshold movement counts as a tap
+      this.tapStart = { x: p.x, y: p.y, t: Date.now() };
+    } else {
+      // Multi-touch — cancel any pending tap
+      this.tapStart = null;
+    }
+
     if (this.pointers.size === 2) {
       const [a, b] = [...this.pointers.values()];
       this.pinchStart = {
@@ -639,6 +726,14 @@ class FloorplanCanvas {
     const prev = this.pointers.get(e.pointerId);
     const next = this._clientToCanvas(e.clientX, e.clientY);
     this.pointers.set(e.pointerId, next);
+
+    // Cancel pending tap if pointer moved past threshold
+    if (this.tapStart) {
+      const dx = next.x - this.tapStart.x;
+      const dy = next.y - this.tapStart.y;
+      const moveThreshold = (10 * this.dpr) ** 2; // ~10 CSS px
+      if (dx * dx + dy * dy > moveThreshold) this.tapStart = null;
+    }
 
     if (this.pointers.size === 1) {
       this.transform.x += next.x - prev.x;
@@ -660,8 +755,19 @@ class FloorplanCanvas {
   }
 
   onPointerUp(e) {
+    // Was this a tap? (single pointer, no significant movement, under 600ms)
+    const wasTap = this.tapStart
+      && this.pointers.size === 1
+      && Date.now() - this.tapStart.t < 600;
+
     this.pointers.delete(e.pointerId);
     if (this.pointers.size < 2) this.pinchStart = null;
+
+    if (wasTap) {
+      const p = this._clientToCanvas(e.clientX, e.clientY);
+      this._handleTap(p.x, p.y);
+    }
+    this.tapStart = null;
   }
 
   onWheel(e) {
