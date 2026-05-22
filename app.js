@@ -51,9 +51,13 @@ function boot() {
   log(`Config: job=${CFG.job} me=${CFG.me} rooms=${CFG.rooms.length} tags=${CFG.tags.length}`);
 
   if (!CFG.job || !CFG.me) {
+    const missing = [!CFG.job && 'job', !CFG.me && 'me'].filter(Boolean).join(' and ');
     showError(
-      'This app needs job and name parameters in the URL. Example:<br>' +
-      '<code style="font-size:0.85em">…/?job=964&me=alex&rooms=IDF+Room,Main+Elec,Site</code>'
+      `This app needs the full link your foreman sent you — it includes <code>${missing}</code> in the URL.<br><br>` +
+      'Example URL format:<br>' +
+      '<code style="font-size:0.82em;word-break:break-all">' +
+      '…/?<strong>job=</strong>964&amp;<strong>me=</strong>alex&amp;rooms=IDF+Room,Main+Elec,Site' +
+      '</code>'
     );
     return;
   }
