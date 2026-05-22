@@ -142,6 +142,14 @@ function boot() {
     if (window.floorplanCanvas) window.floorplanCanvas.resetView();
   });
 
+  // Switch job link — clears localStorage and reloads to bootstrap
+  document.getElementById('switchJobLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!confirm('Clear your current configuration and switch to a different job?')) return;
+    try { localStorage.removeItem(CONFIG_STORAGE_KEY); } catch {}
+    location.replace('./');
+  });
+
   // Load map data if configured
   if (CFG.mapUrl) {
     loadMapData(CFG.mapUrl);
@@ -228,6 +236,7 @@ function showBootstrap() {
       job,
       jobName: params.get('name') || '',
       me,
+      mapUrl: params.get('map') || '',
       rooms: (params.get('rooms') || '').split(',').map(s => s.trim()).filter(Boolean),
       tags: params.get('tags')
         ? params.get('tags').split(',').map(s => s.trim()).filter(Boolean)

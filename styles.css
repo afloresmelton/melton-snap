@@ -122,6 +122,13 @@ textarea {
   font-weight: 600;
 }
 
+.muted-link {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.muted-link:active { color: var(--text); }
+
 /* ── Floorplan canvas ───────────────────────────────────── */
 
 .label-aside {
