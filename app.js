@@ -58,12 +58,15 @@ const CFG = parseConfig();
 // ── State ────────────────────────────────────────────────────────────────
 
 const state = {
-  room: null,
+  rooms: [],            // unified registry: [{id, name, floor, source: 'map'|'fallback'|'url', polygon?}]
+  room: null,           // currently selected room object (from state.rooms) or null
   tag: null,
   caption: '',
   pendingFile: null,    // File object after capture+EXIF
   pendingMeta: null,    // metadata object embedded in EXIF
-  gps: null             // {lat, lon, acc_m} if available
+  gps: null,            // {lat, lon, acc_m} if available
+  mapData: null,        // parsed JSON from ?map URL; null if no map configured
+  mapBaseUrl: null      // resolved base URL of map JSON (for resolving floor.image)
 };
 
 // ── Logging ──────────────────────────────────────────────────────────────
@@ -92,17 +95,12 @@ function boot() {
   const label = CFG.jobName ? `Job ${CFG.job} — ${CFG.jobName}` : `Job ${CFG.job}`;
   document.getElementById('jobLabel').textContent = `${label} · ${CFG.me}`;
 
-  // Room picker
-  const picker = document.getElementById('roomPicker');
-  picker.innerHTML = '<option value="">Select a room…</option>' +
-    CFG.rooms.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('');
-  if (CFG.rooms.length === 0) {
-    picker.innerHTML = '<option value="">(No rooms configured — add &rooms=… to URL)</option>';
-    picker.disabled = true;
-  }
-  picker.addEventListener('change', () => {
-    state.room = picker.value || null;
-    updateShutter();
+  // Initial room registry from URL rooms (fallback if no map data arrives)
+  rebuildRoomRegistry();
+
+  // Room picker change → unified selection
+  document.getElementById('roomPicker').addEventListener('change', (e) => {
+    selectRoomById(e.target.value);
   });
 
   // Tag chips
@@ -268,11 +266,11 @@ function showBootstrap() {
 }
 
 function updateShutter() {
-  const ready = state.room && state.tag;
+  const ready = !!(state.room && state.tag);
   const btn = document.getElementById('shutterBtn');
   btn.disabled = !ready;
   document.getElementById('hint').textContent = ready
-    ? 'Tap shutter to take a photo.'
+    ? `Tap shutter — ${state.room.name} / ${state.tag}`
     : 'Pick a room and a tag, then tap the shutter.';
 }
 
@@ -350,11 +348,17 @@ async function reencodeAsJpeg(file) {
 }
 
 function buildMetadata() {
+  const r = state.room;
   return {
     schema: 1,
     job: CFG.job,
     job_name: CFG.jobName || null,
-    room: { id: slug(state.room), name: state.room, floor: null },
+    room: r ? {
+      id: r.source === 'map' ? r.id : slug(r.name),
+      name: r.name,
+      floor: r.floor,
+      source: r.source
+    } : null,
     tag: state.tag,
     caption: state.caption || '',
     photographer: CFG.me,
@@ -415,9 +419,10 @@ function showReview(file, meta) {
   document.getElementById('previewImg').src = url;
 
   const metaEl = document.getElementById('reviewMeta');
+  const roomLabel = meta.room ? `${meta.room.name}${meta.room.floor ? ` (Floor ${meta.room.floor})` : ''}` : '—';
   metaEl.innerHTML =
     `<strong>${escapeHtml(file.name)}</strong><br>` +
-    `Room: <strong>${escapeHtml(meta.room.name)}</strong> · ` +
+    `Room: <strong>${escapeHtml(roomLabel)}</strong> · ` +
     `Tag: <strong>${escapeHtml(meta.tag)}</strong>` +
     (meta.caption ? `<br>"${escapeHtml(meta.caption)}"` : '') +
     (meta.gps ? `<br>GPS: ${meta.gps.lat}, ${meta.gps.lon} (±${meta.gps.acc_m}m)` : '');
@@ -482,6 +487,99 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return escapeHtml(s); }
 
+// ── Room registry + unified selection ────────────────────────────────────
+
+function rebuildRoomRegistry() {
+  const list = [];
+
+  // 1. Map rooms from currently active floor (if map loaded)
+  const floorIdx = state.mapData ? (state.activeFloorIdx || 0) : -1;
+  const activeFloor = floorIdx >= 0 ? state.mapData.floors[floorIdx] : null;
+  if (activeFloor) {
+    for (const r of activeFloor.rooms || []) {
+      list.push({
+        id: r.id,
+        name: r.name,
+        floor: activeFloor.id,
+        source: 'map',
+        polygon: r.polygon
+      });
+    }
+  }
+
+  // 2. Fallback rooms from JSON config
+  if (state.mapData?.fallback_rooms) {
+    for (const name of state.mapData.fallback_rooms) {
+      list.push({ id: `fb:${slug(name)}`, name, floor: null, source: 'fallback' });
+    }
+  }
+
+  // 3. URL-provided rooms (not duplicated by map/fallback)
+  for (const name of CFG.rooms) {
+    if (!list.find(r => r.name.toLowerCase() === name.toLowerCase())) {
+      list.push({ id: `url:${slug(name)}`, name, floor: null, source: 'url' });
+    }
+  }
+
+  state.rooms = list;
+  populateRoomDropdown();
+}
+
+function populateRoomDropdown() {
+  const picker = document.getElementById('roomPicker');
+  const previous = picker.value;
+
+  const mapRooms = state.rooms.filter(r => r.source === 'map');
+  const otherRooms = state.rooms.filter(r => r.source !== 'map');
+
+  let html = '<option value="">Select a room…</option>';
+  if (mapRooms.length > 0) {
+    html += '<optgroup label="On floorplan">';
+    html += mapRooms.map(r => `<option value="${escapeAttr(r.id)}">${escapeHtml(r.name)}</option>`).join('');
+    html += '</optgroup>';
+  }
+  if (otherRooms.length > 0) {
+    html += `<optgroup label="${mapRooms.length > 0 ? 'Other locations' : 'Locations'}">`;
+    html += otherRooms.map(r => `<option value="${escapeAttr(r.id)}">${escapeHtml(r.name)}</option>`).join('');
+    html += '</optgroup>';
+  }
+  if (state.rooms.length === 0) {
+    html = '<option value="">(No rooms configured — add map URL or &rooms= param)</option>';
+    picker.disabled = true;
+  } else {
+    picker.disabled = false;
+  }
+
+  picker.innerHTML = html;
+
+  // Restore previous selection if still valid
+  if (previous && state.rooms.find(r => r.id === previous)) {
+    picker.value = previous;
+  } else if (state.room && state.rooms.find(r => r.id === state.room.id)) {
+    picker.value = state.room.id;
+  }
+}
+
+function selectRoomById(id) {
+  const room = id ? (state.rooms.find(r => r.id === id) || null) : null;
+  state.room = room;
+
+  // Sync dropdown (no-op if already at this value)
+  const picker = document.getElementById('roomPicker');
+  if (picker.value !== (id || '')) picker.value = id || '';
+
+  // Sync map highlight (silent to avoid callback loop)
+  if (window.floorplanCanvas) {
+    if (room && room.source === 'map') {
+      window.floorplanCanvas.selectRoom(room.id, { silent: true });
+    } else {
+      window.floorplanCanvas.selectRoom(null, { silent: true });
+    }
+  }
+
+  updateShutter();
+}
+
 // ── Floorplan / map ──────────────────────────────────────────────────────
 
 // Ray-casting point-in-polygon. Polygon is array of [x, y] pairs.
@@ -518,28 +616,14 @@ async function loadMapData(mapUrl) {
       return;
     }
 
-    const firstFloor = data.floors[0];
-    const imageUrl = new URL(firstFloor.image, resolved).href;
-    const canvasEl = document.getElementById('floorplanCanvas');
+    state.mapData = data;
+    state.mapBaseUrl = resolved.href;
+    state.activeFloorIdx = 0;
 
-    const fpReadyText = `${firstFloor.name} — tap a room`;
-    window.floorplanCanvas = new FloorplanCanvas(canvasEl, imageUrl, {
-      floor: firstFloor,
-      onReady: () => {
-        statusEl.textContent = fpReadyText;
-      },
-      onError: (err) => {
-        statusEl.textContent = `Couldn't load floorplan image: ${err.message}`;
-      },
-      onRoomSelected: (room) => {
-        if (room) {
-          statusEl.innerHTML = `Selected: <strong>${escapeHtml(room.name)}</strong>`;
-          log(`Room selected via map: ${room.name} (${room.id})`);
-        } else {
-          statusEl.textContent = fpReadyText;
-        }
-      }
-    });
+    // Rebuild room registry with map rooms (this also repopulates the dropdown)
+    rebuildRoomRegistry();
+
+    initFloorplanCanvas(0);
 
     // Floor tabs if multi-floor
     if (data.floors.length > 1) {
@@ -548,12 +632,58 @@ async function loadMapData(mapUrl) {
       tabsEl.innerHTML = data.floors.map((f, i) =>
         `<button type="button" class="chip${i === 0 ? ' active' : ''}" data-floor-idx="${i}">${escapeHtml(f.name)}</button>`
       ).join('');
-      // Floor switching wired in Phase 1.2d
+      tabsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.chip');
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.floorIdx, 10);
+        if (Number.isNaN(idx) || idx === state.activeFloorIdx) return;
+        switchFloor(idx);
+        tabsEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === btn));
+      });
     }
   } catch (err) {
     statusEl.textContent = `Map load failed: ${err.message}`;
     log(`✗ Map load failed: ${err.message}`);
   }
+}
+
+function initFloorplanCanvas(floorIdx) {
+  const floor = state.mapData.floors[floorIdx];
+  const imageUrl = new URL(floor.image, state.mapBaseUrl).href;
+  const canvasEl = document.getElementById('floorplanCanvas');
+  const statusEl = document.getElementById('mapStatus');
+  const readyText = `${floor.name} — tap a room`;
+
+  window.floorplanCanvas = new FloorplanCanvas(canvasEl, imageUrl, {
+    floor,
+    onReady: () => {
+      statusEl.textContent = readyText;
+      // If a room is already selected and exists on this floor, re-highlight
+      if (state.room && state.room.floor === floor.id) {
+        window.floorplanCanvas.selectRoom(state.room.id, { silent: true });
+      }
+    },
+    onError: (err) => {
+      statusEl.textContent = `Couldn't load floorplan image: ${err.message}`;
+    },
+    onRoomSelected: (room) => {
+      if (room) {
+        statusEl.innerHTML = `Selected: <strong>${escapeHtml(room.name)}</strong>`;
+        log(`Map tap → room ${room.id} (${room.name})`);
+        // Unified path — updates state.room AND dropdown
+        selectRoomById(room.id);
+      } else {
+        statusEl.textContent = readyText;
+      }
+    }
+  });
+}
+
+function switchFloor(floorIdx) {
+  state.activeFloorIdx = floorIdx;
+  rebuildRoomRegistry();
+  initFloorplanCanvas(floorIdx);
+  log(`Switched to floor ${floorIdx}: ${state.mapData.floors[floorIdx].name}`);
 }
 
 class FloorplanCanvas {
@@ -657,12 +787,14 @@ class FloorplanCanvas {
     ctx.restore();
   }
 
-  selectRoom(roomId) {
+  selectRoom(roomId, opts = {}) {
     if (this.selectedRoomId === roomId) return;
     this.selectedRoomId = roomId;
     this.render();
-    const room = this.rooms.find(r => r.id === roomId) || null;
-    this.onRoomSelected(room);
+    if (!opts.silent) {
+      const room = roomId ? (this.rooms.find(r => r.id === roomId) || null) : null;
+      this.onRoomSelected(room);
+    }
   }
 
   _canvasToImage(canvasX, canvasY) {

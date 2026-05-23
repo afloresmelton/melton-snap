@@ -1,7 +1,7 @@
 // Minimal service worker — caches the shell so "Add to Home Screen" works offline.
 // Phase 1.1: shell-only cache. Offline photo queueing comes in a later phase.
 
-const CACHE_NAME = 'melton-snap-v7';
+const CACHE_NAME = 'melton-snap-v8';
 const SHELL_ASSETS = [
   './',
   './index.html',
