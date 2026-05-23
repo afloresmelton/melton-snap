@@ -129,6 +129,27 @@ textarea {
 }
 .muted-link:active { color: var(--text); }
 
+.footer-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+.ghost-link {
+  display: inline-block;
+  padding: 10px 18px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ghost-link:active {
+  background: var(--panel);
+  color: var(--text);
+}
+
 /* ── Floorplan canvas ───────────────────────────────────── */
 
 .label-aside {

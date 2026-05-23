@@ -142,11 +142,17 @@ function boot() {
     if (window.floorplanCanvas) window.floorplanCanvas.resetView();
   });
 
-  // Switch job link — clears localStorage and reloads to bootstrap
+  // Switch job button — clears localStorage and reloads into bootstrap.
+  // No native confirm() — flaky in iOS standalone PWAs. The bootstrap view IS
+  // the undo path: if you tapped this by mistake, just paste your link again.
   document.getElementById('switchJobLink').addEventListener('click', (e) => {
     e.preventDefault();
-    if (!confirm('Clear your current configuration and switch to a different job?')) return;
-    try { localStorage.removeItem(CONFIG_STORAGE_KEY); } catch {}
+    log('Switch job tapped — clearing config + reloading');
+    try {
+      localStorage.removeItem(CONFIG_STORAGE_KEY);
+    } catch (err) {
+      log(`localStorage clear failed: ${err.message}`);
+    }
     location.replace('./');
   });
 
