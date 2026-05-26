@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "job": "964",
+  "name": "BP EV HUB",
+  "tags": [
+    "Rough-In",
+    "Finish",
+    "Inspection",
+    "Deficiency",
+    "Before",
+    "After",
+    "Material"
+  ],
+  "floors": [
+    {
+      "id": "1",
+      "name": "Floor 1",
+      "image": "floor-1.svg",
+      "image_width": 1000,
+      "image_height": 700,
+      "rooms": [
+        {
+          "id": "104 - IDF",
+          "name": "Room 104 - IDF",
+          "polygon": [
+            [
+              49,
+              48
+            ],
+            [
+              301,
+              48
+            ],
+            [
+              301,
+              220
+            ],
+            [
+              49,
+              220
+            ]
+          ]
+        },
+        {
+          "id": "105 - Main Electrical",
+          "name": "Room 105 - Main Electrical",
+          "polygon": [
+            [
+              301,
+              51
+            ],
+            [
+              598,
+              51
+            ],
+            [
+              598,
+              217
+            ],
+            [
+              301,
+              217
+            ]
+          ]
+        },
+        {
+          "id": "110 - Loading Dock",
+          "name": "Room 110 - Loading Dock",
+          "polygon": [
+            [
+              599,
+              450
+            ],
+            [
+              949,
+              450
+            ],
+            [
+              949,
+              651
+            ],
+            [
+              599,
+              651
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "fallback_rooms": [
+    "Site",
+    "Roof",
+    "Parking",
+    "Other"
+  ],
+  "saved_at": "2026-05-26T17:57:43.375Z"
+}
