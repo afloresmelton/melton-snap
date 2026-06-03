@@ -42,28 +42,6 @@
           ]
         },
         {
-          "id": "105 - Main Electrical",
-          "name": "Room 105 - Main Electrical",
-          "polygon": [
-            [
-              301,
-              51
-            ],
-            [
-              598,
-              51
-            ],
-            [
-              598,
-              217
-            ],
-            [
-              301,
-              217
-            ]
-          ]
-        },
-        {
           "id": "108 - Storage",
           "name": "Room 108 - Storage",
           "polygon": [
@@ -116,5 +94,5 @@
     "Parking",
     "Other"
   ],
-  "saved_at": "2026-06-03T18:37:10.172Z"
+  "saved_at": "2026-06-03T18:51:49.007Z"
 }
