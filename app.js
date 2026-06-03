@@ -62,8 +62,7 @@ const state = {
   room: null,           // currently selected room object (from state.rooms) or null
   tag: null,
   caption: '',
-  pendingFile: null,    // File object after capture+EXIF
-  pendingMeta: null,    // metadata object embedded in EXIF
+  queue: [],            // [{ file, meta, url }] — captured photos awaiting share
   gps: null,            // {lat, lon, acc_m} if available
   mapData: null,        // parsed JSON from ?map URL; null if no map configured
   mapBaseUrl: null,     // resolved base URL of map JSON (for resolving floor.image)
@@ -133,8 +132,8 @@ function boot() {
   document.getElementById('fileInput').addEventListener('change', onCapture);
 
   // Review actions
-  document.getElementById('retakeBtn').addEventListener('click', resetToCapture);
-  document.getElementById('shareBtn').addEventListener('click', onShare);
+  document.getElementById('shareQueueBtn').addEventListener('click', onShareQueue);
+  document.getElementById('clearQueueBtn').addEventListener('click', clearQueue);
 
   // Try to grab GPS in the background (non-blocking, non-required)
   requestGPS();
@@ -198,7 +197,6 @@ function boot() {
 
 function showError(html) {
   document.getElementById('captureView').hidden = true;
-  document.getElementById('reviewView').hidden = true;
   document.getElementById('bootstrapView').hidden = true;
   const errView = document.getElementById('errorView');
   errView.hidden = false;
@@ -207,7 +205,6 @@ function showError(html) {
 
 function showBootstrap() {
   document.getElementById('captureView').hidden = true;
-  document.getElementById('reviewView').hidden = true;
   document.getElementById('errorView').hidden = true;
   document.getElementById('bootstrapView').hidden = false;
 
@@ -344,9 +341,6 @@ async function onCapture(e) {
     const meta = buildMetadata();
     const taggedFile = await embedExif(jpegFile, meta);
 
-    state.pendingFile = taggedFile;
-    state.pendingMeta = meta;
-
     // Local round-trip sanity check
     if (!await verifyEmbed(taggedFile, meta)) {
       log('⚠️ Local EXIF verify mismatch — sharing anyway');
@@ -354,7 +348,11 @@ async function onCapture(e) {
       log('✓ Local EXIF verify OK');
     }
 
-    showReview(taggedFile, meta);
+    // Add to the queue (multi-photo). Each photo keeps the room/tag/caption
+    // that was selected at the moment of capture.
+    state.queue.push({ file: taggedFile, meta, url: URL.createObjectURL(taggedFile) });
+    log(`Queued ${taggedFile.name} (${state.queue.length} total)`);
+    renderQueue();
   } catch (err) {
     log(`✗ Capture error: ${err.message}`);
     console.error(err);
@@ -443,53 +441,91 @@ function buildFilename() {
   return `J${CFG.job}__${hh}${mm}${ss}__${nonce}.jpg`;
 }
 
-// ── Review view ──────────────────────────────────────────────────────────
+// ── Queue (multi-photo) ──────────────────────────────────────────────────
 
-function showReview(file, meta) {
-  document.getElementById('captureView').hidden = true;
-  document.getElementById('reviewView').hidden = false;
+function renderQueue() {
+  const tray = document.getElementById('queueTray');
+  const thumbs = document.getElementById('queueThumbs');
+  const countEl = document.getElementById('queueCount');
 
-  const url = URL.createObjectURL(file);
-  document.getElementById('previewImg').src = url;
+  if (state.queue.length === 0) {
+    tray.hidden = true;
+    thumbs.innerHTML = '';
+    return;
+  }
 
-  const metaEl = document.getElementById('reviewMeta');
-  const roomLabel = meta.room ? `${meta.room.name}${meta.room.floor ? ` (Floor ${meta.room.floor})` : ''}` : '—';
-  metaEl.innerHTML =
-    `<strong>${escapeHtml(file.name)}</strong><br>` +
-    `Room: <strong>${escapeHtml(roomLabel)}</strong> · ` +
-    `Tag: <strong>${escapeHtml(meta.tag)}</strong>` +
-    (meta.caption ? `<br>"${escapeHtml(meta.caption)}"` : '') +
-    (meta.gps ? `<br>GPS: ${meta.gps.lat}, ${meta.gps.lon} (±${meta.gps.acc_m}m)` : '');
+  tray.hidden = false;
+  countEl.textContent = `${state.queue.length} photo${state.queue.length === 1 ? '' : 's'} ready`;
+  document.querySelector('#shareQueueBtn .shutter-label').textContent =
+    `Share ${state.queue.length} to OneDrive`;
+
+  thumbs.innerHTML = state.queue.map((q, i) => {
+    const roomName = q.meta.room?.name || '—';
+    return `<div class="queue-thumb" data-idx="${i}">
+      <img src="${q.url}" alt="">
+      <button type="button" class="qt-remove" data-idx="${i}" title="Remove">×</button>
+      <div class="qt-room">${escapeHtml(roomName)}</div>
+    </div>`;
+  }).join('');
+
+  thumbs.querySelectorAll('.qt-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFromQueue(parseInt(btn.dataset.idx, 10));
+    });
+  });
 }
 
-async function onShare() {
-  if (!state.pendingFile) return;
-  if (!navigator.canShare || !navigator.canShare({ files: [state.pendingFile] })) {
+function removeFromQueue(idx) {
+  const item = state.queue[idx];
+  if (item?.url) URL.revokeObjectURL(item.url);
+  state.queue.splice(idx, 1);
+  log(`Removed photo from queue (${state.queue.length} left)`);
+  renderQueue();
+}
+
+function clearQueue() {
+  for (const q of state.queue) { if (q.url) URL.revokeObjectURL(q.url); }
+  state.queue = [];
+  renderQueue();
+}
+
+async function onShareQueue() {
+  if (state.queue.length === 0) return;
+  const files = state.queue.map(q => q.file);
+
+  if (!navigator.canShare || !navigator.canShare({ files })) {
+    // Some iOS versions cap multi-file share. Fall back to one-at-a-time.
+    if (navigator.canShare && navigator.canShare({ files: [files[0]] })) {
+      log('⚠️ Multi-file share unsupported — sharing the first photo only. Share again for the rest.');
+      try {
+        await navigator.share({ files: [files[0]], title: 'Jobsite photo' });
+        removeFromQueue(0);
+      } catch (err) {
+        if (err.name !== 'AbortError') log(`✗ Share failed: ${err.message}`);
+      }
+      return;
+    }
     log('✗ navigator.share with files NOT supported');
     alert('Sharing files is not supported in this browser. Use Safari on iPhone.');
     return;
   }
+
   try {
-    await navigator.share({ files: [state.pendingFile], title: 'Jobsite photo' });
-    log(`✓ Shared: ${state.pendingFile.name}`);
-    resetToCapture();
+    await navigator.share({ files, title: `Jobsite photos (${files.length})` });
+    log(`✓ Shared ${files.length} photo(s)`);
+    clearQueue();
+    // Clear caption for the next batch; keep room/tag for fast repeat capture.
+    state.caption = '';
+    document.getElementById('caption').value = '';
   } catch (err) {
     if (err.name === 'AbortError') {
-      log('Share canceled by user');
+      log('Share canceled by user — photos still queued');
     } else {
       log(`✗ Share failed: ${err.message}`);
       alert(`Share failed: ${err.message}`);
     }
   }
-}
-
-function resetToCapture() {
-  state.pendingFile = null;
-  state.pendingMeta = null;
-  state.caption = '';
-  document.getElementById('caption').value = '';
-  document.getElementById('reviewView').hidden = true;
-  document.getElementById('captureView').hidden = false;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1028,11 +1064,11 @@ async function checkForConfigUpdate() {
 
     log(`New config detected: ${state.loadedMapSavedAt} → ${fresh.saved_at}`);
 
-    // If the user has a finished-but-not-yet-shared photo, don't disrupt them.
+    // If the user has photos queued but not yet shared, don't disrupt them.
     // Show a banner so they can finish + tap when ready.
-    if (state.pendingFile) {
+    if (state.queue.length > 0) {
       if (state.updateReason === 'config') return;
-      showUpdateBanner('config', 'Updated map — finish your photo first');
+      showUpdateBanner('config', 'Updated map — share your photos first');
       return;
     }
 
@@ -1091,10 +1127,10 @@ if ('serviceWorker' in navigator) {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               // A new SW finished installing AND an old one is still controlling.
-              // If the user has unfinished work, defer with a banner.
-              if (state.pendingFile) {
+              // If the user has queued photos, defer with a banner.
+              if (state.queue.length > 0) {
                 if (state.dismissedAppUpdate) return;
-                showUpdateBanner('app', 'App update — finish your photo first');
+                showUpdateBanner('app', 'App update — share your photos first');
                 return;
               }
               // Otherwise auto-reload — small delay lets in-flight state settle.

@@ -63,24 +63,23 @@
 
     <p id="hint" class="hint">Pick a room and a tag, then tap the shutter.</p>
 
+    <section id="queueTray" class="queue-tray" hidden>
+      <div class="queue-head">
+        <span id="queueCount" class="queue-count">0 photos</span>
+        <button type="button" id="clearQueueBtn" class="ghost-link">Clear all</button>
+      </div>
+      <div id="queueThumbs" class="queue-thumbs"></div>
+      <button id="shareQueueBtn" class="shutter share-queue">
+        <span class="shutter-icon">⬆️</span>
+        <span class="shutter-label">Share to OneDrive</span>
+      </button>
+      <p class="hint">After tapping Share, choose "Save to OneDrive" from the share sheet.</p>
+    </section>
+
     <div class="footer-actions">
       <button type="button" id="refreshMapBtn" class="ghost-link">🔄 Refresh map</button>
       <button type="button" id="switchJobLink" class="ghost-link">Switch job / reconfigure</button>
     </div>
-  </main>
-
-  <main id="reviewView" hidden>
-    <section class="preview-wrap">
-      <img id="previewImg" alt="captured photo">
-      <div id="reviewMeta" class="review-meta"></div>
-    </section>
-
-    <div class="action-row">
-      <button id="retakeBtn" class="ghost">Retake</button>
-      <button id="shareBtn" class="primary">Share to OneDrive</button>
-    </div>
-
-    <p class="hint">After sharing, pick "Save to OneDrive" from the share sheet.</p>
   </main>
 
   <main id="bootstrapView" hidden>
