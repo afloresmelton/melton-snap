@@ -1009,25 +1009,42 @@ function onUpdateDismiss() {
   hideUpdateBanner();
 }
 
-// Poll the map config to see if a newer version has been published.
-// Triggered on visibility-change (when the field guy returns to the app)
-// and periodically while the app is open.
+// Poll the map config and silently auto-refresh if a newer version exists.
+// If the user has work in progress (pending capture), defer with a banner
+// instead of disrupting them.
 async function checkForConfigUpdate() {
   if (!CFG.mapUrl) return;
   if (!state.loadedMapSavedAt) return;       // nothing to compare against yet
-  if (state.updateReason === 'config') return; // banner already showing
   try {
     const url = new URL(CFG.mapUrl, location.href);
-    const res = await fetch(url.href, { cache: 'reload' });
+    // Append a unique timestamp so the SW's cache-key never matches — this
+    // forces a real network fetch even on an old SW that does cache-first.
+    const bustedUrl = url.href + (url.search ? '&' : '?') + '_t=' + Date.now();
+    const res = await fetch(bustedUrl, { cache: 'reload' });
     if (!res.ok) return;
     const fresh = await res.json();
     if (!fresh.saved_at) return;
-    if (fresh.saved_at === state.loadedMapSavedAt) return; // up-to-date
-    if (fresh.saved_at === state.dismissedConfigSavedAt) return; // user already dismissed
-    log(`Config update available: ${state.loadedMapSavedAt} → ${fresh.saved_at}`);
-    showUpdateBanner('config', 'Updated map available');
+    if (fresh.saved_at === state.loadedMapSavedAt) return; // already up-to-date
+
+    log(`New config detected: ${state.loadedMapSavedAt} → ${fresh.saved_at}`);
+
+    // If the user has a finished-but-not-yet-shared photo, don't disrupt them.
+    // Show a banner so they can finish + tap when ready.
+    if (state.pendingFile) {
+      if (state.updateReason === 'config') return;
+      showUpdateBanner('config', 'Updated map — finish your photo first');
+      return;
+    }
+
+    // Otherwise silently swap in the new config.
+    log('Auto-refreshing map (no pending capture)');
+    state.rooms = [];
+    state.room = null;
+    document.getElementById('roomPicker').value = '';
+    updateShutter();
+    await loadMapData(CFG.mapUrl, { bustCache: true });
   } catch (err) {
-    // Network issue — silently ignore
+    // Network issue — silent
   }
 }
 
@@ -1036,22 +1053,28 @@ function initUpdateChecks() {
   document.getElementById('updateRefreshBtn').addEventListener('click', onUpdateRefresh);
   document.getElementById('updateDismissBtn').addEventListener('click', onUpdateDismiss);
 
+  function tickUpdateChecks() {
+    checkForConfigUpdate();
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => reg && reg.update());
+    }
+  }
+
   // Check when the user returns to the app (tab focus, app re-foreground, etc.)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      checkForConfigUpdate();
-      // Also poke the SW to look for app updates
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistration().then(reg => reg && reg.update());
-      }
-    }
+    if (document.visibilityState === 'visible') tickUpdateChecks();
   });
-  window.addEventListener('focus', checkForConfigUpdate);
+  window.addEventListener('focus', tickUpdateChecks);
 
-  // Periodic poll while the app is in foreground — every 15 minutes.
+  // Periodic poll while the app is in foreground — every 2 minutes.
+  // Light traffic (a ~2KB JSON) but keeps the app current without user action.
   setInterval(() => {
-    if (document.visibilityState === 'visible') checkForConfigUpdate();
-  }, 15 * 60 * 1000);
+    if (document.visibilityState === 'visible') tickUpdateChecks();
+  }, 2 * 60 * 1000);
+
+  // Also tick once shortly after boot (catches config changes made in the
+  // last 30 seconds before the user opened the app).
+  setTimeout(tickUpdateChecks, 30 * 1000);
 }
 
 // ── Service worker registration + update detection ───────────────────────
@@ -1067,10 +1090,16 @@ if ('serviceWorker' in navigator) {
           if (!newWorker) return;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // A new SW finished installing AND an old one is still controlling
-              // pages → there's an update waiting for the user to reload.
-              if (state.dismissedAppUpdate) return;
-              showUpdateBanner('app', 'App update available');
+              // A new SW finished installing AND an old one is still controlling.
+              // If the user has unfinished work, defer with a banner.
+              if (state.pendingFile) {
+                if (state.dismissedAppUpdate) return;
+                showUpdateBanner('app', 'App update — finish your photo first');
+                return;
+              }
+              // Otherwise auto-reload — small delay lets in-flight state settle.
+              log('App update installed — auto-reloading');
+              setTimeout(() => location.reload(), 500);
             }
           });
         });
