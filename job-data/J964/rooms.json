@@ -20,28 +20,6 @@
       "image_height": 700,
       "rooms": [
         {
-          "id": "104 - IDF",
-          "name": "Room 104 - IDF",
-          "polygon": [
-            [
-              49,
-              48
-            ],
-            [
-              301,
-              48
-            ],
-            [
-              301,
-              220
-            ],
-            [
-              49,
-              220
-            ]
-          ]
-        },
-        {
           "id": "108 - Storage",
           "name": "Room 108 - Storage",
           "polygon": [
@@ -116,5 +94,5 @@
     "Parking",
     "Other"
   ],
-  "saved_at": "2026-06-03T19:07:02.726Z"
+  "saved_at": "2026-06-03T19:18:38.414Z"
 }
