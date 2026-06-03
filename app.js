@@ -63,6 +63,7 @@ const state = {
   tag: null,
   caption: '',
   queue: [],            // [{ file, meta, url }] — captured photos awaiting share
+  batchId: null,        // id shared across one share-batch (set on first capture)
   gps: null,            // {lat, lon, acc_m} if available
   mapData: null,        // parsed JSON from ?map URL; null if no map configured
   mapBaseUrl: null,     // resolved base URL of map JSON (for resolving floor.image)
@@ -331,6 +332,12 @@ async function onCapture(e) {
   log(`Captured: ${file.name} — ${(file.size/1024).toFixed(0)} KB, ${file.type}`);
 
   try {
+    // Starting a fresh batch (queue was empty) → new batch id. All photos
+    // captured before the next share share this id, so the hub can group them.
+    if (state.queue.length === 0) {
+      state.batchId = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
     // Re-encode through canvas to guarantee JPEG (handles HEIC + strips orientation surprises)
     const jpegFile = await reencodeAsJpeg(file);
     if (jpegFile !== file) {
@@ -395,6 +402,7 @@ function buildMetadata() {
     caption: state.caption || '',
     photographer: CFG.me,
     captured_at: new Date().toISOString(),
+    batch_id: state.batchId,   // shared across all photos shared together
     gps: state.gps,
     device: {
       ua: navigator.userAgent.slice(0, 120)
