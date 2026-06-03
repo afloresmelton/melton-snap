@@ -66,7 +66,11 @@ const state = {
   pendingMeta: null,    // metadata object embedded in EXIF
   gps: null,            // {lat, lon, acc_m} if available
   mapData: null,        // parsed JSON from ?map URL; null if no map configured
-  mapBaseUrl: null      // resolved base URL of map JSON (for resolving floor.image)
+  mapBaseUrl: null,     // resolved base URL of map JSON (for resolving floor.image)
+  loadedMapSavedAt: null,        // saved_at of the currently rendered config
+  updateReason: null,            // 'config' | 'app' (for banner refresh action)
+  dismissedAppUpdate: false,     // session-scoped: don't re-show app-update banner after dismiss
+  dismissedConfigSavedAt: null   // session-scoped: don't re-show same config-update banner
 };
 
 // ── Logging ──────────────────────────────────────────────────────────────
@@ -653,6 +657,7 @@ async function loadMapData(mapUrl, opts = {}) {
     state.mapData = data;
     state.mapBaseUrl = resolved.href;
     state.activeFloorIdx = 0;
+    state.loadedMapSavedAt = data.saved_at || null;
 
     // Rebuild room registry with map rooms (this also repopulates the dropdown)
     rebuildRoomRegistry();
@@ -955,16 +960,127 @@ class FloorplanCanvas {
   }
 }
 
-// ── Service worker registration ──────────────────────────────────────────
+// ── Update banner (config + app shell) ───────────────────────────────────
+
+function showUpdateBanner(reason, message) {
+  state.updateReason = reason;
+  const banner = document.getElementById('updateBanner');
+  banner.querySelector('.update-text').textContent = message;
+  banner.hidden = false;
+  log(`Banner shown: ${reason} — ${message}`);
+}
+
+function hideUpdateBanner() {
+  document.getElementById('updateBanner').hidden = true;
+}
+
+async function onUpdateRefresh() {
+  const reason = state.updateReason;
+  hideUpdateBanner();
+  if (reason === 'app') {
+    // For app shell updates, the new SW is already in 'installed' state.
+    // Reload to activate it (the new SW skipWaiting + clients.claim takes over).
+    log('App update — reloading page');
+    location.reload();
+  } else {
+    // For config updates, re-fetch the map without losing capture state.
+    log('Config update — refreshing map');
+    if (CFG.mapUrl) {
+      // Reset room selection while reloading
+      state.rooms = [];
+      state.room = null;
+      document.getElementById('roomPicker').value = '';
+      updateShutter();
+      try {
+        await loadMapData(CFG.mapUrl, { bustCache: true });
+      } catch (err) {
+        log(`Refresh failed: ${err.message}`);
+      }
+    }
+  }
+}
+
+function onUpdateDismiss() {
+  if (state.updateReason === 'app') {
+    state.dismissedAppUpdate = true;
+  } else if (state.updateReason === 'config') {
+    state.dismissedConfigSavedAt = state.loadedMapSavedAt;
+  }
+  hideUpdateBanner();
+}
+
+// Poll the map config to see if a newer version has been published.
+// Triggered on visibility-change (when the field guy returns to the app)
+// and periodically while the app is open.
+async function checkForConfigUpdate() {
+  if (!CFG.mapUrl) return;
+  if (!state.loadedMapSavedAt) return;       // nothing to compare against yet
+  if (state.updateReason === 'config') return; // banner already showing
+  try {
+    const url = new URL(CFG.mapUrl, location.href);
+    const res = await fetch(url.href, { cache: 'reload' });
+    if (!res.ok) return;
+    const fresh = await res.json();
+    if (!fresh.saved_at) return;
+    if (fresh.saved_at === state.loadedMapSavedAt) return; // up-to-date
+    if (fresh.saved_at === state.dismissedConfigSavedAt) return; // user already dismissed
+    log(`Config update available: ${state.loadedMapSavedAt} → ${fresh.saved_at}`);
+    showUpdateBanner('config', 'Updated map available');
+  } catch (err) {
+    // Network issue — silently ignore
+  }
+}
+
+// Set up the polling triggers + button wiring
+function initUpdateChecks() {
+  document.getElementById('updateRefreshBtn').addEventListener('click', onUpdateRefresh);
+  document.getElementById('updateDismissBtn').addEventListener('click', onUpdateDismiss);
+
+  // Check when the user returns to the app (tab focus, app re-foreground, etc.)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkForConfigUpdate();
+      // Also poke the SW to look for app updates
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => reg && reg.update());
+      }
+    }
+  });
+  window.addEventListener('focus', checkForConfigUpdate);
+
+  // Periodic poll while the app is in foreground — every 15 minutes.
+  setInterval(() => {
+    if (document.visibilityState === 'visible') checkForConfigUpdate();
+  }, 15 * 60 * 1000);
+}
+
+// ── Service worker registration + update detection ───────────────────────
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(
-      reg => log(`SW registered (scope: ${reg.scope})`),
+      reg => {
+        log(`SW registered (scope: ${reg.scope})`);
+        // Listen for new SW installs (app shell updates)
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // A new SW finished installing AND an old one is still controlling
+              // pages → there's an update waiting for the user to reload.
+              if (state.dismissedAppUpdate) return;
+              showUpdateBanner('app', 'App update available');
+            }
+          });
+        });
+      },
       err => log(`SW register failed: ${err.message}`)
     );
   });
 }
+
+initUpdateChecks();
 
 // ── Go ───────────────────────────────────────────────────────────────────
 
