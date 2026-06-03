@@ -64,50 +64,6 @@
           ]
         },
         {
-          "id": "110 - Loading Dock",
-          "name": "Room 110 - Loading Dock",
-          "polygon": [
-            [
-              599,
-              450
-            ],
-            [
-              949,
-              450
-            ],
-            [
-              949,
-              651
-            ],
-            [
-              599,
-              651
-            ]
-          ]
-        },
-        {
-          "id": "106 - Server Room",
-          "name": "Room 106 - Server Room",
-          "polygon": [
-            [
-              601,
-              55
-            ],
-            [
-              948,
-              55
-            ],
-            [
-              948,
-              213
-            ],
-            [
-              601,
-              213
-            ]
-          ]
-        },
-        {
           "id": "108 - Storage",
           "name": "Room 108 - Storage",
           "polygon": [
@@ -138,5 +94,5 @@
     "Parking",
     "Other"
   ],
-  "saved_at": "2026-06-03T18:00:47.503Z"
+  "saved_at": "2026-06-03T18:20:57.511Z"
 }
