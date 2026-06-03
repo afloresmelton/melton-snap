@@ -154,6 +154,36 @@ function boot() {
     location.replace('./');
   });
 
+  // Refresh map — re-fetch rooms.json + floorplan without clearing config.
+  // Useful when the foreman has published a new config and the field guy
+  // wants to pick it up without re-pasting the URL.
+  document.getElementById('refreshMapBtn').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const btn = e.currentTarget;
+    const orig = btn.textContent;
+    btn.textContent = '⏳ Refreshing…';
+    btn.disabled = true;
+    try {
+      if (CFG.mapUrl) {
+        // Reset the room registry so we don't see stale rooms while the new
+        // config loads. parseConfig set CFG.rooms from URL fallback only.
+        state.rooms = [];
+        state.room = null;
+        document.getElementById('roomPicker').value = '';
+        updateShutter();
+        await loadMapData(CFG.mapUrl, { bustCache: true });
+        log('✓ Map refreshed from network');
+      } else {
+        log('No map URL configured for this job — nothing to refresh');
+      }
+    } catch (err) {
+      log(`✗ Refresh failed: ${err.message}`);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+
   // Load map data if configured
   if (CFG.mapUrl) {
     loadMapData(CFG.mapUrl);
@@ -597,16 +627,20 @@ function pointInPolygon(x, y, polygon) {
 }
 
 
-async function loadMapData(mapUrl) {
+async function loadMapData(mapUrl, opts = {}) {
   const statusEl = document.getElementById('mapStatus');
   const sectionEl = document.getElementById('mapSection');
   sectionEl.hidden = false;
   statusEl.textContent = `Loading floorplan…`;
-  log(`Fetching map config from ${mapUrl}`);
+  log(`Fetching map config from ${mapUrl}${opts.bustCache ? ' (cache-busted)' : ''}`);
 
   try {
     const resolved = new URL(mapUrl, location.href);
-    const res = await fetch(resolved.href);
+    // Belt-and-suspenders: tell the browser to skip its HTTP cache (the SW
+    // also goes network-first for /job-data/ paths, but this guarantees we
+    // hit the network even if SW caching changes).
+    const fetchOpts = opts.bustCache ? { cache: 'reload' } : {};
+    const res = await fetch(resolved.href, fetchOpts);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     log(`✓ Map config loaded — ${data.floors?.length || 0} floor(s)`);

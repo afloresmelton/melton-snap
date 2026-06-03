@@ -1,7 +1,7 @@
 // Minimal service worker — caches the shell so "Add to Home Screen" works offline.
 // Phase 1.1: shell-only cache. Offline photo queueing comes in a later phase.
 
-const CACHE_NAME = 'melton-snap-v8';
+const CACHE_NAME = 'melton-snap-v9';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -30,16 +30,35 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // Network-first for navigation; cache-first for everything else
+  const url = new URL(req.url);
+
+  // Network-first for navigation
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(() => caches.match('./index.html'))
     );
     return;
   }
+
+  // Network-first for dynamic config (per-job rooms.json + floorplans).
+  // These can change anytime a foreman publishes; cached versions would
+  // hide deletions and edits. Fall back to cache only if offline.
+  if (/\/job-data\//.test(url.pathname)) {
+    event.respondWith(
+      fetch(req).then(res => {
+        if (req.method === 'GET' && res.ok && url.origin === self.location.origin) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(req, clone));
+        }
+        return res;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Cache-first for everything else (shell + vendor)
   event.respondWith(
     caches.match(req).then(cached => cached || fetch(req).then(res => {
-      // Cache successful GET responses for same-origin or our known CDN
       if (req.method === 'GET' && res.ok && (
         req.url.startsWith(self.location.origin) ||
         req.url.startsWith('https://cdn.jsdelivr.net/')
