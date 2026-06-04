@@ -1,14 +1,15 @@
 // Minimal service worker — caches the shell so "Add to Home Screen" works offline.
 // Phase 1.1: shell-only cache. Offline photo queueing comes in a later phase.
 
-const CACHE_NAME = 'melton-snap-v13';
+const CACHE_NAME = 'melton-snap-v14';
 const SHELL_ASSETS = [
   './',
   './index.html',
   './app.js',
   './styles.css',
   './manifest.webmanifest',
-  'https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js'
+  'https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js',
+  'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js'
 ];
 
 self.addEventListener('install', (event) => {

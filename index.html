@@ -69,11 +69,19 @@
         <button type="button" id="clearQueueBtn" class="ghost-link">Clear all</button>
       </div>
       <div id="queueThumbs" class="queue-thumbs"></div>
-      <button id="shareQueueBtn" class="shutter share-queue">
-        <span class="shutter-icon">⬆️</span>
-        <span class="shutter-label">Share to OneDrive</span>
+      <button id="directUploadBtn" class="shutter direct-upload">
+        <span class="shutter-icon">☁️</span>
+        <span class="shutter-label">Upload to OneDrive</span>
       </button>
-      <p class="hint">After tapping Share, choose "Save to OneDrive" from the share sheet.</p>
+      <p id="uploadStatus" class="hint"></p>
+      <details class="share-fallback">
+        <summary>Other: share via OneDrive app</summary>
+        <button id="shareQueueBtn" class="shutter share-queue">
+          <span class="shutter-icon">⬆️</span>
+          <span class="shutter-label">Share to OneDrive</span>
+        </button>
+        <p class="hint">After tapping Share, choose "Save to OneDrive" from the share sheet.</p>
+      </details>
     </section>
 
     <div class="footer-actions">
@@ -112,6 +120,7 @@
   </details>
 
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

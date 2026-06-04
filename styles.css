@@ -369,13 +369,25 @@ textarea {
   justify-content: center;
   padding: 0;
 }
-.shutter.share-queue {
+.shutter.direct-upload {
   padding: 16px 18px;
   background: var(--ok);
   box-shadow: 0 4px 12px rgba(63, 185, 80, 0.3);
 }
-.shutter.share-queue:active { background: #2ea043; }
-.shutter.share-queue .shutter-icon { font-size: 1.5rem; }
+.shutter.direct-upload:active { background: #2ea043; }
+.shutter.direct-upload .shutter-icon { font-size: 1.5rem; }
+.shutter.direct-upload:disabled { opacity: 0.5; }
+
+.share-fallback { margin-top: 6px; }
+.share-fallback summary { font-size: 0.82rem; color: var(--muted); cursor: pointer; padding: 6px 0; }
+.shutter.share-queue {
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.shutter.share-queue:active { background: var(--border); }
+.shutter.share-queue .shutter-icon { font-size: 1.3rem; }
 
 /* ── Debug ──────────────────────────────────────────────── */
 

@@ -135,6 +135,7 @@ function boot() {
   // Review actions
   document.getElementById('shareQueueBtn').addEventListener('click', onShareQueue);
   document.getElementById('clearQueueBtn').addEventListener('click', clearQueue);
+  document.getElementById('directUploadBtn').addEventListener('click', onDirectUpload);
 
   // Try to grab GPS in the background (non-blocking, non-required)
   requestGPS();
@@ -466,6 +467,7 @@ function renderQueue() {
   countEl.textContent = `${state.queue.length} photo${state.queue.length === 1 ? '' : 's'} ready`;
   document.querySelector('#shareQueueBtn .shutter-label').textContent =
     `Share ${state.queue.length} to OneDrive`;
+  updateShareLabels();
 
   thumbs.innerHTML = state.queue.map((q, i) => {
     const roomName = q.meta.room?.name || '—';
@@ -496,6 +498,131 @@ function clearQueue() {
   for (const q of state.queue) { if (q.url) URL.revokeObjectURL(q.url); }
   state.queue = [];
   renderQueue();
+}
+
+// ── Direct upload to OneDrive (MSAL + Microsoft Graph) ───────────────────
+
+const MSAL_CLIENT_ID = '239f56eb-22b0-4af6-86d4-272126d390a9';
+const GRAPH_SCOPES = ['Files.ReadWrite.AppFolder'];
+
+let _pca = null;        // MSAL PublicClientApplication, lazily created
+let _pcaReady = null;   // promise that resolves once redirect handling is done
+
+function getMsalApp() {
+  if (_pca) return _pcaReady.then(() => _pca);
+  if (typeof msal === 'undefined') {
+    return Promise.reject(new Error('MSAL library not loaded'));
+  }
+  // App base URL = origin + directory (matches the registered redirect URIs:
+  // https://afloresmelton.github.io/melton-snap/  and  http://localhost:5173/)
+  const appBase = location.origin + location.pathname.replace(/[^/]*$/, '');
+  _pca = new msal.PublicClientApplication({
+    auth: {
+      clientId: MSAL_CLIENT_ID,
+      authority: 'https://login.microsoftonline.com/common',
+      redirectUri: appBase
+    },
+    cache: { cacheLocation: 'localStorage' }
+  });
+  _pcaReady = _pca.handleRedirectPromise().catch(err => log(`MSAL redirect: ${err.message}`));
+  return _pcaReady.then(() => _pca);
+}
+
+async function getGraphToken() {
+  const pca = await getMsalApp();
+  let account = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  if (!account) {
+    log('Signing in to Microsoft…');
+    const res = await pca.loginPopup({ scopes: GRAPH_SCOPES });
+    account = res.account;
+    pca.setActiveAccount(account);
+    log(`✓ Signed in as ${account.username}`);
+  }
+  try {
+    const r = await pca.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+    return r.accessToken;
+  } catch (err) {
+    // Silent failed (consent/interaction needed) → fall back to popup
+    const r = await pca.acquireTokenPopup({ scopes: GRAPH_SCOPES });
+    return r.accessToken;
+  }
+}
+
+// Upload one file into the app's dedicated OneDrive folder (/Apps/Melton Snap/).
+async function uploadToAppFolder(file, token) {
+  const safeName = encodeURIComponent(file.name);
+  const url = `https://graph.microsoft.com/v1.0/me/drive/special/approot:/${safeName}:/content`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'image/jpeg' },
+    body: file
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+async function onDirectUpload() {
+  if (state.queue.length === 0) return;
+  const btn = document.getElementById('directUploadBtn');
+  const label = btn.querySelector('.shutter-label');
+  const status = document.getElementById('uploadStatus');
+  const origLabel = label.textContent;
+  btn.disabled = true;
+
+  try {
+    status.style.color = '';
+    status.textContent = 'Connecting to OneDrive…';
+    const token = await getGraphToken();
+
+    let done = 0;
+    const total = state.queue.length;
+    const items = state.queue.slice(); // snapshot
+    for (const item of items) {
+      label.textContent = `Uploading ${done + 1}/${total}…`;
+      status.textContent = `Uploading ${item.file.name}`;
+      try {
+        await uploadToAppFolder(item.file, token);
+        // remove this item from the live queue as it succeeds
+        const idx = state.queue.indexOf(item);
+        if (idx >= 0) removeFromQueue(idx);
+        done++;
+      } catch (err) {
+        log(`✗ Upload failed for ${item.file.name}: ${err.message}`);
+        status.style.color = '#f85149';
+        status.textContent = `Failed on ${item.file.name}: ${err.message}`;
+        return; // stop; remaining stay queued for retry
+      }
+    }
+
+    status.style.color = '#3fb950';
+    status.textContent = `✓ Uploaded ${done} photo${done === 1 ? '' : 's'} to OneDrive`;
+    log(`✓ Direct upload: ${done} photo(s)`);
+    // Clear caption for next batch; room/tag kept for fast repeat
+    state.caption = '';
+    document.getElementById('caption').value = '';
+  } catch (err) {
+    status.style.color = '#f85149';
+    if (err.name === 'BrowserAuthError' && /popup/i.test(err.message)) {
+      status.textContent = 'Sign-in popup blocked — allow popups and try again.';
+    } else {
+      status.textContent = `Upload error: ${err.message}`;
+    }
+    log(`✗ Direct upload error: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    label.textContent = origLabel;
+    updateShareLabels();
+  }
+}
+
+// Keep button labels in sync with the queue count.
+function updateShareLabels() {
+  const n = state.queue.length;
+  const dl = document.querySelector('#directUploadBtn .shutter-label');
+  if (dl) dl.textContent = n > 0 ? `Upload ${n} to OneDrive` : 'Upload to OneDrive';
 }
 
 async function onShareQueue() {
