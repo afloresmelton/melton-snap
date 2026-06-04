@@ -548,10 +548,26 @@ async function getGraphToken() {
   }
 }
 
-// Upload one file into the app's dedicated OneDrive folder (/Apps/Melton Snap/).
-async function uploadToAppFolder(file, token) {
+// Provision the app's special folder (/Apps/Melton Snap/). On a personal
+// OneDrive the folder doesn't exist until first accessed; a GET creates it.
+// Returns the folder's item id.
+async function ensureAppRoot(token) {
+  const res = await fetch('https://graph.microsoft.com/v1.0/me/drive/special/approot', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Couldn't access app folder: HTTP ${res.status} ${text.slice(0, 160)}`);
+  }
+  const item = await res.json();
+  return item.id;
+}
+
+// Upload one file into the app folder. Uses the parent folder's item id
+// (resolved via ensureAppRoot) so the parent is guaranteed to exist.
+async function uploadToAppFolder(file, token, approotId) {
   const safeName = encodeURIComponent(file.name);
-  const url = `https://graph.microsoft.com/v1.0/me/drive/special/approot:/${safeName}:/content`;
+  const url = `https://graph.microsoft.com/v1.0/me/drive/items/${approotId}:/${safeName}:/content`;
   const res = await fetch(url, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'image/jpeg' },
@@ -577,6 +593,9 @@ async function onDirectUpload() {
     status.textContent = 'Connecting to OneDrive…';
     const token = await getGraphToken();
 
+    // Ensure the app folder exists (creates /Apps/Melton Snap/ on first use)
+    const approotId = await ensureAppRoot(token);
+
     let done = 0;
     const total = state.queue.length;
     const items = state.queue.slice(); // snapshot
@@ -584,7 +603,7 @@ async function onDirectUpload() {
       label.textContent = `Uploading ${done + 1}/${total}…`;
       status.textContent = `Uploading ${item.file.name}`;
       try {
-        await uploadToAppFolder(item.file, token);
+        await uploadToAppFolder(item.file, token, approotId);
         // remove this item from the live queue as it succeeds
         const idx = state.queue.indexOf(item);
         if (idx >= 0) removeFromQueue(idx);
