@@ -164,6 +164,7 @@ Record dropped at `<jobFolder>/_inbox/matreq__<ISO8601compact>__<nonce>.json`:
     { "description": "20A 1P breaker, Square D QO", "qty": 6, "unit": "ea", "note": "" }
   ],
   "photos": [ "J964__083012__a1b.jpg" ],   // optional refs to attachments captured via shared component
+  "note": "gate code 1234; deliver to trailer",  // optional, request-level free note
   "status": "submitted"               // draft (local only) | submitted (uploaded)
 }
 ```

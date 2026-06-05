@@ -2,7 +2,7 @@
 // Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
 // of one app.js. All are precached so the field hub launches offline.
 
-const CACHE_NAME = 'melton-snap-v16';
+const CACHE_NAME = 'melton-snap-v17';
 const SHELL_ASSETS = [
   './',
   './index.html',
