@@ -2,7 +2,7 @@
 // Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
 // of one app.js. All are precached so the field hub launches offline.
 
-const CACHE_NAME = 'melton-snap-v21';
+const CACHE_NAME = 'melton-snap-v22';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -23,8 +23,13 @@ const SHELL_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_ASSETS))
-      .catch(err => console.warn('Cache addAll failed:', err))
+    // cache:'reload' bypasses the browser HTTP cache so a version bump always
+    // precaches FRESH assets (otherwise a warm HTTP cache can bake stale
+    // styles.css / js into the new SW cache — the classic "deployed but still
+    // old" bug).
+    caches.open(CACHE_NAME).then(cache => cache.addAll(
+      SHELL_ASSETS.map(u => new Request(u, { cache: 'reload' }))
+    )).catch(err => console.warn('Cache addAll failed:', err))
   );
   self.skipWaiting();
 });
@@ -44,10 +49,11 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Network-first for navigation
+  // Navigation: always fetch FRESH html (bypass the HTTP cache) so a new deploy
+  // shows on the next launch. Fall back to the cached shell only when offline.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('./index.html'))
+      fetch(req, { cache: 'reload' }).catch(() => caches.match('./index.html'))
     );
     return;
   }
