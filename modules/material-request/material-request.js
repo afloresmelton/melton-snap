@@ -235,7 +235,10 @@
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
-    return `J${shell.job.jobNo()}__${hh}${mm}${ss}__${nonce()}.jpg`;
+    // MRQ tag = "this photo belongs to a material request." Office-side, the
+    // Progress Photos mover SKIPS MRQ* files and the Material Requests ingest
+    // attaches them to the order. (Progress-photo captures keep J<job>__.)
+    return `MRQ${shell.job.jobNo()}__${hh}${mm}${ss}__${nonce()}.jpg`;
   }
   function nonce() { return Math.random().toString(36).slice(2, 6); }
 
