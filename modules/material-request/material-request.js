@@ -21,7 +21,6 @@
   // ── Module state (what can't live in the DOM) ───────────────────────────
   let attachments = [];      // [{ file, name, url }] nameplate photos, pre-submit
   let catalogUnits = {};     // lower(description) -> unit, for unit auto-fill
-  let roomIndex = {};        // lower(roomName) -> { name, floor }
   let urgency = 'normal';    // 'normal' | 'rush'
 
   // ── Mount: render the form + wire it ────────────────────────────────────
@@ -36,12 +35,6 @@
         <label>Items</label>
         <div id="mrItems" class="mr-items"></div>
         <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
-      </section>
-
-      <section class="field">
-        <label for="mrRoom">Location / Area <span class="label-aside">— optional</span></label>
-        <input id="mrRoom" type="text" list="mrRoomList" placeholder="e.g. IDF Room" autocomplete="off">
-        <datalist id="mrRoomList"></datalist>
       </section>
 
       <section class="field mr-two-col">
@@ -92,7 +85,6 @@
     renderAttachments();
     updateSubmit();
     loadCatalog();         // item autocomplete (graceful if absent)
-    loadRooms();           // location autocomplete (graceful if absent)
   }
 
   // ── Line items (DOM is the source of truth; state stays in the inputs) ───
@@ -197,7 +189,11 @@
 
     const status = document.getElementById('mrStatus');
     status.style.color = '#3fb950';
-    status.textContent = '✓ Added to the outbox below — tap "Upload to OneDrive" to send.';
+    status.textContent = '✓ Submitting to OneDrive…';
+
+    // One press: send right away (uploads the whole outbox). If not signed in,
+    // shell.sync.flush() redirects to Microsoft sign-in and auto-resumes on return.
+    shell.sync.flush();
   }
 
   function buildRecord(items, photos) {
@@ -210,7 +206,7 @@
       created_at: new Date().toISOString(),
       needed_by: document.getElementById('mrNeededBy').value || null,
       urgency,
-      location: readLocation(),
+      location: null,
       items,
       photos,
       note: document.getElementById('mrNote').value.trim(),
@@ -218,18 +214,9 @@
     };
   }
 
-  function readLocation() {
-    const v = document.getElementById('mrRoom').value.trim();
-    if (!v) return null;
-    const match = roomIndex[v.toLowerCase()];
-    if (match) return { floor: match.floor || '', room: match.name, free: '' };
-    return { floor: '', room: '', free: v };
-  }
-
   function resetForm() {
     document.getElementById('mrItems').innerHTML = '';
     addItemRow();
-    document.getElementById('mrRoom').value = '';
     document.getElementById('mrNeededBy').value = '';
     document.getElementById('mrNote').value = '';
     urgency = 'normal';
@@ -271,36 +258,6 @@
     } catch (err) {
       shell.log(`Items catalog load failed: ${err.message}`);
     }
-  }
-
-  async function loadRooms() {
-    const list = document.getElementById('mrRoomList');
-    roomIndex = {};
-    const names = [];
-    const mapUrl = shell.job.mapUrl();
-    if (mapUrl) {
-      try {
-        const res = await fetch(new URL(mapUrl, location.href).href);
-        if (res.ok) {
-          const data = await res.json();
-          for (const f of data.floors || []) {
-            for (const r of f.rooms || []) {
-              roomIndex[r.name.toLowerCase()] = { name: r.name, floor: f.id };
-              names.push(r.name);
-            }
-          }
-          for (const n of data.fallback_rooms || []) {
-            if (!roomIndex[n.toLowerCase()]) { roomIndex[n.toLowerCase()] = { name: n, floor: '' }; names.push(n); }
-          }
-        }
-      } catch (err) {
-        shell.log(`Room list load failed: ${err.message}`);
-      }
-    }
-    for (const n of shell.job.rooms()) {
-      if (!roomIndex[n.toLowerCase()]) { roomIndex[n.toLowerCase()] = { name: n, floor: '' }; names.push(n); }
-    }
-    list.innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
   }
 
   // ── Register ────────────────────────────────────────────────────────────
