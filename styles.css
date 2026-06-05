@@ -131,9 +131,8 @@ main {
 
 #moduleNav {
   display: flex;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--panel);
-  padding-bottom: var(--safe-bottom);
 }
 .nav-tab {
   flex: 1;
