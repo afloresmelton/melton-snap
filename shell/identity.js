@@ -1,71 +1,97 @@
 'use strict';
 
 // ─────────────────────────────────────────────────────────────────────────
-// Shell identity — MSAL login + Microsoft Graph token acquisition.
+// Shell identity — MSAL login + Microsoft Graph tokens via the REDIRECT flow.
 //
-// The field hub's identity layer (FIELD-HUB-PLAN §4). Today it backs the
-// OneDrive upload; long-term it's "who is this foreman" for every module.
-// Generic token getter: the *scopes* are the caller's business (sync asks
-// for Files.ReadWrite.AppFolder), identity just gets a token for them.
+// Why redirect, not popup: iOS standalone PWAs (Add to Home Screen) block
+// window.open popups, so loginPopup/acquireTokenPopup silently fail with
+// "popup blocked." The redirect flow navigates the whole page to Microsoft
+// and back; init()'s handleRedirectPromise() finishes the round-trip on
+// return. Because the page reloads mid-sign-in, the outbox must be durable —
+// see shell.sync (IndexedDB) + the auto-resume in boot.js.
 // ─────────────────────────────────────────────────────────────────────────
 
 (function (shell) {
 
   const MSAL_CLIENT_ID = '239f56eb-22b0-4af6-86d4-272126d390a9';
 
-  let _pca = null;        // MSAL PublicClientApplication, lazily created
-  let _pcaReady = null;   // resolves once redirect handling is done
+  let _pca = null;            // MSAL PublicClientApplication
+  let _initPromise = null;    // init() runs once
+  let _redirectResult = null; // non-null iff this page load returned from sign-in
 
-  function getMsalApp() {
-    if (_pca) return _pcaReady.then(() => _pca);
-    if (typeof msal === 'undefined') {
-      return Promise.reject(new Error('MSAL library not loaded'));
-    }
-    // App base URL = origin + directory (matches registered redirect URIs:
-    // https://afloresmelton.github.io/melton-snap/  and  http://localhost:5173/)
-    const appBase = location.origin + location.pathname.replace(/[^/]*$/, '');
-    _pca = new msal.PublicClientApplication({
-      auth: {
-        clientId: MSAL_CLIENT_ID,
-        authority: 'https://login.microsoftonline.com/common',
-        redirectUri: appBase
-      },
-      cache: { cacheLocation: 'localStorage' }
-    });
-    _pcaReady = _pca.handleRedirectPromise().catch(err => shell.log(`MSAL redirect: ${err.message}`));
-    return _pcaReady.then(() => _pca);
+  // Create the MSAL app and process any pending redirect response. Idempotent.
+  function init() {
+    if (_initPromise) return _initPromise;
+    _initPromise = (async () => {
+      if (typeof msal === 'undefined') { shell.log('MSAL library not loaded'); return; }
+      // App base URL = origin + directory (matches the registered redirect URI:
+      // https://afloresmelton.github.io/melton-snap/  and  http://localhost:5173/)
+      const appBase = location.origin + location.pathname.replace(/[^/]*$/, '');
+      _pca = new msal.PublicClientApplication({
+        auth: {
+          clientId: MSAL_CLIENT_ID,
+          authority: 'https://login.microsoftonline.com/common',
+          redirectUri: appBase
+        },
+        cache: { cacheLocation: 'localStorage' }
+      });
+      try {
+        _redirectResult = await _pca.handleRedirectPromise();
+        if (_redirectResult && _redirectResult.account) {
+          _pca.setActiveAccount(_redirectResult.account);
+          shell.log(`✓ Signed in as ${_redirectResult.account.username}`);
+        } else if (!_pca.getActiveAccount() && _pca.getAllAccounts()[0]) {
+          _pca.setActiveAccount(_pca.getAllAccounts()[0]);
+        }
+      } catch (err) {
+        shell.log(`MSAL redirect error: ${err.message}`);
+      }
+    })();
+    return _initPromise;
   }
 
-  // Acquire a Graph access token for the given scopes. Signs in (popup) on
-  // first use, then prefers silent acquisition, falling back to popup if
-  // interaction is required (consent/expired).
-  async function getToken(scopes) {
-    const pca = await getMsalApp();
-    let account = pca.getActiveAccount() || pca.getAllAccounts()[0];
-    if (!account) {
-      shell.log('Signing in to Microsoft…');
-      const res = await pca.loginPopup({ scopes });
-      account = res.account;
-      pca.setActiveAccount(account);
-      shell.log(`✓ Signed in as ${account.username}`);
-    }
-    try {
-      const r = await pca.acquireTokenSilent({ scopes, account });
-      return r.accessToken;
-    } catch (err) {
-      const r = await pca.acquireTokenPopup({ scopes });
-      return r.accessToken;
-    }
+  // True if this page load just returned from an interactive sign-in — boot
+  // uses it to auto-resume a pending upload.
+  function justAuthenticated() { return !!_redirectResult; }
+
+  function isSignedIn() {
+    return !!(_pca && (_pca.getActiveAccount() || _pca.getAllAccounts()[0]));
   }
 
-  // Current signed-in username, or null. Synchronous — only reflects state if
-  // MSAL has already been initialized (i.e. after a sign-in this session).
+  // Acquire a Graph token for `scopes`. Tries silent first; if interaction is
+  // needed and opts.interactive !== false, kicks off a full-page redirect to
+  // sign in (the returned promise never resolves — the page is unloading, and
+  // the upload resumes after the round-trip). With opts.interactive === false
+  // it throws instead of redirecting (used by auto-resume to avoid loops).
+  async function getToken(scopes, opts = {}) {
+    await init();
+    if (!_pca) throw new Error('MSAL not available');
+
+    const account = _pca.getActiveAccount() || _pca.getAllAccounts()[0];
+    if (account) {
+      try {
+        const r = await _pca.acquireTokenSilent({ scopes, account });
+        return r.accessToken;
+      } catch (err) {
+        shell.log(`Silent token failed (${err.errorCode || err.message})`);
+      }
+    }
+
+    if (opts.interactive === false) {
+      throw new Error('Sign-in required');
+    }
+
+    shell.log('Redirecting to Microsoft sign-in…');
+    await _pca.acquireTokenRedirect({ scopes }); // navigates away
+    return new Promise(() => {});                 // unreachable; page is unloading
+  }
+
   function username() {
     if (!_pca) return null;
     const acct = _pca.getActiveAccount() || _pca.getAllAccounts()[0];
     return acct ? acct.username : null;
   }
 
-  shell.identity = { getToken, username, clientId: MSAL_CLIENT_ID };
+  shell.identity = { init, getToken, username, isSignedIn, justAuthenticated, clientId: MSAL_CLIENT_ID };
 
 })(window.shell);

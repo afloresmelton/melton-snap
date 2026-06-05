@@ -22,11 +22,59 @@
   let _seq = 0;
   let _uploading = false;
 
+  // ── Durable storage (IndexedDB) ─────────────────────────────────────────
+  // The outbox persists so a queued capture/request survives an app kill AND
+  // the full-page sign-in redirect (see shell.identity). File/Blob objects go
+  // straight in via structured clone; the object-URL thumbnail is regenerated
+  // on restore (object URLs don't survive a reload).
+  const DB_NAME = 'melton-field-hub';
+  const STORE = 'outbox';
+
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      let req;
+      try { req = indexedDB.open(DB_NAME, 1); } catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function persistPut(item) {
+    try {
+      const db = await openDb();
+      db.transaction(STORE, 'readwrite').objectStore(STORE).put({
+        id: item.id, name: item.name, contentType: item.contentType,
+        label: item.label, file: item.file,
+        isImage: !!(item.contentType && item.contentType.startsWith('image/'))
+      });
+    } catch (err) { shell.log(`Outbox persist failed: ${err.message}`); }
+  }
+
+  async function persistDel(id) {
+    try { const db = await openDb(); db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id); } catch (e) {}
+  }
+
+  async function persistClear() {
+    try { const db = await openDb(); db.transaction(STORE, 'readwrite').objectStore(STORE).clear(); } catch (e) {}
+  }
+
+  function idbAll() {
+    return openDb().then(db => new Promise((resolve, reject) => {
+      const r = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    })).catch(() => []);
+  }
+
   // ── Outbox operations ───────────────────────────────────────────────────
 
   function enqueue({ file, name, contentType, thumbUrl, label }) {
     const item = {
-      id: 'o' + (++_seq),
+      id: 'o' + Date.now().toString(36) + '_' + (++_seq), // unique across sessions
       file,
       name: name || file.name,
       contentType: contentType || file.type || 'application/octet-stream',
@@ -34,6 +82,7 @@
       label: label || name || file.name
     };
     state.items.push(item);
+    persistPut(item);
     shell.log(`Outbox + ${item.name} (${state.items.length} pending)`);
     render();
     return item;
@@ -47,6 +96,7 @@
     if (idx < 0) return;
     const [it] = state.items.splice(idx, 1);
     if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
+    persistDel(it.id);
     shell.log(`Outbox − ${it.name} (${state.items.length} left)`);
     render();
   }
@@ -54,6 +104,7 @@
   function clear() {
     for (const it of state.items) if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
     state.items = [];
+    persistClear();
     render();
   }
 
@@ -89,7 +140,7 @@
 
   // Upload everything in the outbox. Items are removed as they succeed; a
   // failure stops the run and leaves the rest queued for retry.
-  async function flush() {
+  async function flush(opts = {}) {
     if (state.items.length === 0 || _uploading) return;
     _uploading = true;
 
@@ -101,7 +152,7 @@
 
     try {
       if (status) { status.style.color = ''; status.textContent = 'Connecting to OneDrive…'; }
-      const token = await shell.identity.getToken(GRAPH_SCOPES);
+      const token = await shell.identity.getToken(GRAPH_SCOPES, { interactive: opts.interactive !== false });
       const approotId = await ensureAppRoot(token);
 
       let done = 0;
@@ -224,14 +275,33 @@
     }
   }
 
-  function init() {
+  async function init() {
     const upBtn = document.getElementById('outboxUploadBtn');
     const shareBtn = document.getElementById('outboxShareBtn');
     const clearBtn = document.getElementById('outboxClearBtn');
-    if (upBtn) upBtn.addEventListener('click', flush);
+    if (upBtn) upBtn.addEventListener('click', () => flush()); // don't pass the event as opts
     if (shareBtn) shareBtn.addEventListener('click', shareFallback);
     if (clearBtn) clearBtn.addEventListener('click', clear);
+    await restore();
     render();
+  }
+
+  // Rehydrate the outbox from IndexedDB (after an app restart or sign-in redirect).
+  async function restore() {
+    try {
+      const recs = await idbAll();
+      for (const rec of recs) {
+        if (state.items.find(i => i.id === rec.id)) continue;
+        state.items.push({
+          id: rec.id, file: rec.file, name: rec.name,
+          contentType: rec.contentType, label: rec.label,
+          thumbUrl: rec.isImage ? URL.createObjectURL(rec.file) : null
+        });
+      }
+      if (recs.length) shell.log(`Outbox restored ${recs.length} item(s) from device`);
+    } catch (err) {
+      shell.log(`Outbox restore failed: ${err.message}`);
+    }
   }
 
   shell.sync = {

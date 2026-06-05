@@ -14,7 +14,7 @@
 
 (function (shell) {
 
-  function boot() {
+  async function boot() {
     shell.log(`UA: ${navigator.userAgent.slice(0, 70)}…`);
     shell.log(`navigator.share files: ${navigator.canShare ? 'check at share' : 'MISSING'}`);
     shell.log(`piexif: ${typeof piexif === 'object'}`);
@@ -34,10 +34,20 @@
     const label = cfg.jobName ? `Job ${cfg.job} — ${cfg.jobName}` : `Job ${cfg.job}`;
     document.getElementById('jobLabel').textContent = `${label} · ${cfg.me}`;
 
-    // Reveal the app, wire the outbox, bring up modules.
+    // Reveal the app and bring up modules.
     document.getElementById('appView').hidden = false;
-    shell.sync.init();
     shell.nav.init('photos');
+
+    // Finish any pending sign-in redirect and restore the durable outbox.
+    await Promise.all([shell.identity.init(), shell.sync.init()]);
+
+    // If we just returned from an interactive sign-in and items are waiting,
+    // complete the upload without making the user tap again. interactive:false
+    // keeps this from looping back into another redirect.
+    if (shell.identity.justAuthenticated() && shell.sync.count() > 0) {
+      shell.log('Resuming upload after sign-in…');
+      shell.sync.flush({ interactive: false });
+    }
   }
 
   // ── Update tick: SW refresh + active-module config check ─────────────────
