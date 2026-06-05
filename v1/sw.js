@@ -1,22 +1,14 @@
-// Minimal service worker — caches the shell so "Add to Home Screen" works offline.
-// Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
-// of one app.js. All are precached so the field hub launches offline.
+// FROZEN v1 fallback service worker (pre-Phase-2.0 Melton Snap).
+// Scope: /melton-snap/v1/ only. Uses a DISJOINT cache namespace (snapv1-*) so
+// it never deletes the root hub's melton-snap-* caches, and vice-versa.
 
-const CACHE_NAME = 'melton-snap-v16';
+const CACHE_NAME = 'snapv1-fallback';
 const SHELL_ASSETS = [
   './',
   './index.html',
+  './app.js',
   './styles.css',
   './manifest.webmanifest',
-  './shell/core.js',
-  './shell/identity.js',
-  './shell/job.js',
-  './shell/sync.js',
-  './shell/capture.js',
-  './shell/nav.js',
-  './shell/boot.js',
-  './modules/photos/photos.js',
-  './modules/material-request/material-request.js',
   'https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js',
   'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js'
 ];
@@ -31,10 +23,9 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    // Only clean up OUR own old caches. The /v1/ fallback page runs a separate
-    // SW under the snapv1-* namespace; don't delete its cache (or it ours).
+    // Only clean up OUR own (snapv1-*) caches — leave the root hub's alone.
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k.startsWith('melton-snap-') && k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k.startsWith('snapv1-') && k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
   self.clients.claim();

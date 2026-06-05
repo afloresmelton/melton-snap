@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "job": "964",
+  "name": "BP EV HUB",
+  "tags": [
+    "Rough-In",
+    "Finish",
+    "Inspection",
+    "Deficiency",
+    "Before",
+    "After",
+    "Material"
+  ],
+  "floors": [
+    {
+      "id": "1",
+      "name": "Floor 1",
+      "image": "floor-1.svg",
+      "image_width": 1000,
+      "image_height": 700,
+      "rooms": [
+        {
+          "id": "104",
+          "name": "IDF Room",
+          "polygon": [
+            [
+              46,
+              46
+            ],
+            [
+              298,
+              46
+            ],
+            [
+              298,
+              218
+            ],
+            [
+              46,
+              218
+            ]
+          ]
+        },
+        {
+          "id": "105",
+          "name": "Main Electrical",
+          "polygon": [
+            [
+              298,
+              46
+            ],
+            [
+              598,
+              46
+            ],
+            [
+              598,
+              218
+            ],
+            [
+              298,
+              218
+            ]
+          ]
+        },
+        {
+          "id": "106",
+          "name": "Server Room",
+          "polygon": [
+            [
+              598,
+              46
+            ],
+            [
+              946,
+              46
+            ],
+            [
+              946,
+              218
+            ],
+            [
+              598,
+              218
+            ]
+          ]
+        },
+        {
+          "id": "107",
+          "name": "Open Office",
+          "polygon": [
+            [
+              46,
+              218
+            ],
+            [
+              946,
+              218
+            ],
+            [
+              946,
+              448
+            ],
+            [
+              46,
+              448
+            ]
+          ]
+        },
+        {
+          "id": "108",
+          "name": "Storage",
+          "polygon": [
+            [
+              46,
+              449
+            ],
+            [
+              298,
+              449
+            ],
+            [
+              298,
+              647
+            ],
+            [
+              46,
+              647
+            ]
+          ]
+        },
+        {
+          "id": "109",
+          "name": "Break Room",
+          "polygon": [
+            [
+              298,
+              448
+            ],
+            [
+              598,
+              448
+            ],
+            [
+              598,
+              646
+            ],
+            [
+              298,
+              646
+            ]
+          ]
+        },
+        {
+          "id": "110",
+          "name": "Loading Dock",
+          "polygon": [
+            [
+              598,
+              448
+            ],
+            [
+              946,
+              448
+            ],
+            [
+              946,
+              646
+            ],
+            [
+              598,
+              646
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "fallback_rooms": [
+    "Site",
+    "Roof",
+    "Parking",
+    "Other"
+  ],
+  "saved_at": "2026-06-04T22:03:14.727Z"
+}

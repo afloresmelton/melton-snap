@@ -25,71 +25,86 @@
     <div id="jobLabel" class="job-label">—</div>
   </header>
 
-  <main id="captureView">
-    <section class="field">
-      <label for="roomPicker">Room / Area</label>
-      <select id="roomPicker" class="dropdown">
-        <option value="">Select a room…</option>
-      </select>
-    </section>
+  <!-- ── App (shown once a job is configured) ─────────────────────────── -->
+  <div id="appView" hidden>
+    <div id="moduleStack">
 
-    <section id="mapSection" class="field" hidden>
-      <label>Floorplan
-        <span class="label-aside">— pinch to zoom, drag to pan</span>
-      </label>
-      <div id="floorTabs" class="chip-row" hidden></div>
-      <div class="canvas-wrap">
-        <canvas id="floorplanCanvas"></canvas>
-        <button type="button" id="resetViewBtn" class="canvas-overlay-btn" title="Reset view">⤢</button>
-      </div>
-      <p id="mapStatus" class="hint small"></p>
-    </section>
+      <!-- Module #1 — Progress Photos -->
+      <section id="module-photos" class="module-view">
+        <section class="field">
+          <label for="roomPicker">Room / Area</label>
+          <select id="roomPicker" class="dropdown">
+            <option value="">Select a room…</option>
+          </select>
+        </section>
 
-    <section class="field">
-      <label>Tag</label>
-      <div id="tagChips" class="chip-row"></div>
-    </section>
+        <section id="mapSection" class="field" hidden>
+          <label>Floorplan
+            <span class="label-aside">— pinch to zoom, drag to pan</span>
+          </label>
+          <div id="floorTabs" class="chip-row" hidden></div>
+          <div class="canvas-wrap">
+            <canvas id="floorplanCanvas"></canvas>
+            <button type="button" id="resetViewBtn" class="canvas-overlay-btn" title="Reset view">⤢</button>
+          </div>
+          <p id="mapStatus" class="hint small"></p>
+        </section>
 
-    <section class="field">
-      <label for="caption">Caption (optional)</label>
-      <input id="caption" type="text" maxlength="200" placeholder="Short note…" autocomplete="off">
-    </section>
+        <section class="field">
+          <label>Tag</label>
+          <div id="tagChips" class="chip-row"></div>
+        </section>
 
-    <button id="shutterBtn" class="shutter" disabled>
-      <span class="shutter-icon">📸</span>
-      <span class="shutter-label">Take Photo</span>
-    </button>
-    <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+        <section class="field">
+          <label for="caption">Caption (optional)</label>
+          <input id="caption" type="text" maxlength="200" placeholder="Short note…" autocomplete="off">
+        </section>
 
-    <p id="hint" class="hint">Pick a room and a tag, then tap the shutter.</p>
-
-    <section id="queueTray" class="queue-tray" hidden>
-      <div class="queue-head">
-        <span id="queueCount" class="queue-count">0 photos</span>
-        <button type="button" id="clearQueueBtn" class="ghost-link">Clear all</button>
-      </div>
-      <div id="queueThumbs" class="queue-thumbs"></div>
-      <button id="directUploadBtn" class="shutter direct-upload">
-        <span class="shutter-icon">☁️</span>
-        <span class="shutter-label">Upload to OneDrive</span>
-      </button>
-      <p id="uploadStatus" class="hint"></p>
-      <details class="share-fallback">
-        <summary>Other: share via OneDrive app</summary>
-        <button id="shareQueueBtn" class="shutter share-queue">
-          <span class="shutter-icon">⬆️</span>
-          <span class="shutter-label">Share to OneDrive</span>
+        <button id="shutterBtn" class="shutter" disabled>
+          <span class="shutter-icon">📸</span>
+          <span class="shutter-label">Take Photo</span>
         </button>
-        <p class="hint">After tapping Share, choose "Save to OneDrive" from the share sheet.</p>
-      </details>
-    </section>
 
-    <div class="footer-actions">
-      <button type="button" id="refreshMapBtn" class="ghost-link">🔄 Refresh map</button>
-      <button type="button" id="switchJobLink" class="ghost-link">Switch job / reconfigure</button>
+        <p id="hint" class="hint">Pick a room and a tag, then tap the shutter.</p>
+
+        <div class="footer-actions">
+          <button type="button" id="refreshMapBtn" class="ghost-link">🔄 Refresh map</button>
+          <button type="button" id="switchJobLink" class="ghost-link">Switch job / reconfigure</button>
+        </div>
+      </section>
+
+      <!-- Module #2 — Field Materials Request (stub; filled by its module) -->
+      <section id="module-material-request" class="module-view" hidden></section>
+
+      <!-- ── Shared outbox (any module's pending uploads) ─────────────── -->
+      <section id="outboxTray" class="queue-tray" hidden>
+        <div class="queue-head">
+          <span id="outboxCount" class="queue-count">0 items</span>
+          <button type="button" id="outboxClearBtn" class="ghost-link">Clear all</button>
+        </div>
+        <div id="outboxThumbs" class="queue-thumbs"></div>
+        <button id="outboxUploadBtn" class="shutter direct-upload">
+          <span class="shutter-icon">☁️</span>
+          <span class="shutter-label">Upload to OneDrive</span>
+        </button>
+        <p id="outboxStatus" class="hint"></p>
+        <details class="share-fallback">
+          <summary>Other: share via OneDrive app</summary>
+          <button id="outboxShareBtn" class="shutter share-queue">
+            <span class="shutter-icon">⬆️</span>
+            <span class="shutter-label">Share to OneDrive</span>
+          </button>
+          <p class="hint">After tapping Share, choose "Save to OneDrive" from the share sheet.</p>
+        </details>
+      </section>
+
     </div>
-  </main>
 
+    <!-- ── Module switcher (hidden when only one module) ──────────────── -->
+    <nav id="moduleNav" hidden></nav>
+  </div>
+
+  <!-- ── First-time setup ─────────────────────────────────────────────── -->
   <main id="bootstrapView" hidden>
     <h2>First-time setup</h2>
     <p class="hint">Paste the full link your foreman sent you. You'll only need to do this once on this device.</p>
@@ -119,8 +134,23 @@
     <pre id="log"></pre>
   </details>
 
+  <!-- Vendor -->
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
-  <script src="app.js"></script>
+
+  <!-- Field shell (load order matters: core first, boot last) -->
+  <script src="shell/core.js"></script>
+  <script src="shell/identity.js"></script>
+  <script src="shell/job.js"></script>
+  <script src="shell/sync.js"></script>
+  <script src="shell/capture.js"></script>
+  <script src="shell/nav.js"></script>
+
+  <!-- Modules (register themselves with the nav) -->
+  <script src="modules/photos/photos.js"></script>
+  <script src="modules/material-request/material-request.js"></script>
+
+  <!-- Orchestrator -->
+  <script src="shell/boot.js"></script>
 </body>
 </html>

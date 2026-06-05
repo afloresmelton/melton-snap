@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+  <!-- Background -->
+  <rect width="1000" height="700" fill="#f5f7fa"/>
+
+  <!-- Outer walls -->
+  <rect x="50" y="50" width="900" height="600" fill="none" stroke="#1a2128" stroke-width="8"/>
+
+  <!-- Inner walls — row 1 (top) dividers -->
+  <line x1="300" y1="50" x2="300" y2="220" stroke="#1a2128" stroke-width="4"/>
+  <line x1="600" y1="50" x2="600" y2="220" stroke="#1a2128" stroke-width="4"/>
+  <line x1="50" y1="220" x2="950" y2="220" stroke="#1a2128" stroke-width="4"/>
+
+  <!-- Inner walls — row 3 (bottom) dividers -->
+  <line x1="50" y1="450" x2="950" y2="450" stroke="#1a2128" stroke-width="4"/>
+  <line x1="300" y1="450" x2="300" y2="650" stroke="#1a2128" stroke-width="4"/>
+  <line x1="600" y1="450" x2="600" y2="650" stroke="#1a2128" stroke-width="4"/>
+
+  <!-- Door gaps (small white rectangles over walls) -->
+  <rect x="170" y="218" width="40" height="6" fill="#f5f7fa"/>
+  <rect x="450" y="218" width="40" height="6" fill="#f5f7fa"/>
+  <rect x="750" y="218" width="40" height="6" fill="#f5f7fa"/>
+  <rect x="170" y="448" width="40" height="6" fill="#f5f7fa"/>
+  <rect x="450" y="448" width="40" height="6" fill="#f5f7fa"/>
+  <rect x="750" y="448" width="40" height="6" fill="#f5f7fa"/>
+
+  <!-- Room labels -->
+  <g font-family="-apple-system, sans-serif" font-size="22" font-weight="600" text-anchor="middle" fill="#1a2128">
+    <text x="175" y="140">IDF Room</text>
+    <text x="175" y="168" font-size="14" font-weight="400" fill="#5a6878">104</text>
+
+    <text x="450" y="140">Main Electrical</text>
+    <text x="450" y="168" font-size="14" font-weight="400" fill="#5a6878">105</text>
+
+    <text x="775" y="140">Server Room</text>
+    <text x="775" y="168" font-size="14" font-weight="400" fill="#5a6878">106</text>
+
+    <text x="500" y="335" font-size="28">Open Office</text>
+    <text x="500" y="365" font-size="14" font-weight="400" fill="#5a6878">107</text>
+
+    <text x="175" y="555">Storage</text>
+    <text x="175" y="583" font-size="14" font-weight="400" fill="#5a6878">108</text>
+
+    <text x="450" y="555">Break Room</text>
+    <text x="450" y="583" font-size="14" font-weight="400" fill="#5a6878">109</text>
+
+    <text x="775" y="555">Loading Dock</text>
+    <text x="775" y="583" font-size="14" font-weight="400" fill="#5a6878">110</text>
+  </g>
+
+  <!-- North arrow -->
+  <g transform="translate(900, 80)">
+    <circle cx="0" cy="0" r="18" fill="#fff" stroke="#1a2128" stroke-width="2"/>
+    <polygon points="0,-12 5,5 0,2 -5,5" fill="#1a2128"/>
+    <text x="0" y="-22" text-anchor="middle" font-family="sans-serif" font-size="11" font-weight="600" fill="#1a2128">N</text>
+  </g>
+</svg>
