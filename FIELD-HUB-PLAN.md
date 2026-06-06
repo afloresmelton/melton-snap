@@ -6,6 +6,26 @@ This plan covers the evolution from "one app" to "field hub with modules." The v
 
 ---
 
+## 0. Status — built & live (updated 2026-06-05)
+
+Phases **2.0, 2.1, and 2.2 (ingest) are built and in use** on the pilot job (964 / BP EV HUB). The field PWA is deployed on GitHub Pages (`afloresmelton.github.io/melton-snap/`, SW cache `v22`); the office side runs in the desktop hub.
+
+| Phase | State | As built |
+|---|---|---|
+| **2.0 — Snap → field shell** | ✅ done, live | `window.shell` = `core/identity/job/sync/capture/nav/boot` + `modules/photos` + `modules/material-request`. Plus a **frozen v1 fallback** at `/v1/` (the pre-refactor app, in case the hub breaks on a phone). |
+| **2.1 — Field Materials Request** | ✅ done, live | Mobile form (repeatable line items, photo attach, urgency, needed-by, note), **one-press Submit** (queues + uploads in a single tap), `matreq__*.json` bridge. Location field dropped per field feedback. |
+| **2.2 — Office ingest** | ✅ done | Built as a **sibling hub module** `material-request-inbox` (not a button inside MO). Routes by jobNo → **deferred order creation**: requests land in a status log; the PM clicks **Create New Order** to mint a draft MO and is dropped into it. |
+| **2.2b — Catalog publish** | ⏳ next | Office writes the real `items.json` (today it's hand-seeded). |
+| **2.3 — Real-job E2E** | ⏳ in progress | First on-phone round-trips underway; iterating on device. |
+
+**Notable departures from the original plan** (detail in §8):
+- **MSAL switched popup → redirect auth.** iOS standalone PWAs block popups — this *was* the §2.3 "remaining unknown." Paired with a **durable IndexedDB outbox** so the full-page sign-in redirect doesn't lose queued captures, and an **auto-resume** after sign-in.
+- **Office ingest is a sibling module with deferred, status-driven order creation** (status: No order created / Draft / RFP Sent / Deleted), not an auto-create button in MO. The PM stays in control of when a request becomes an order.
+- **Photo tag-and-route.** A request's attachment is named `MRQ<job>__…` and the Progress Photos mover *skips* `MRQ*` files, so the photo lands on its **order** (Material Requests attaches it) instead of disappearing into Progress Photos.
+- **SW caching hardened** (`cache:'reload'` on precache + navigation) to kill the "deployed but the phone still shows old" problem.
+
+---
+
 ## 1. The product pattern: field captures → office processes
 
 The field hub is not a grab-bag of apps. **Every field module is the front door to an office module.** A foreman captures intent in the field; the office hub formalizes and acts on it. They meet at a per-job folder in OneDrive.
@@ -13,7 +33,7 @@ The field hub is not a grab-bag of apps. **Every field module is the front door 
 | Field hub (capture, phone) | ── bridge (OneDrive job folder) ── | Office hub (process, desktop) |
 |---|---|---|
 | **Melton Snap** — shoot photo + metadata | → | **Progress Photos** — ingest, review, export *(built)* |
-| **Field Materials Request** — "I need X" | → | **Material Order** — consolidate, send vendor RFP *(office side exists; gains ingest)* |
+| **Field Materials Request** — "I need X" | → | **Material Order** — consolidate, send vendor RFP *(office side exists; **ingest built** — `material-request-inbox`)* |
 | *(later)* Field RFI request | → | RFI module *(exists)* |
 | *(later)* Daily report / deficiency log | → | *(future office module)* |
 
@@ -105,7 +125,7 @@ Two modules share enough that not extracting these means building them twice:
 
 Continues the v1 numbering (v1 = Phase 0–1.x). Field-hub work = **Phase 2.x**.
 
-### 2.0 — Refactor Snap into a shell (no new features)
+### 2.0 — Refactor Snap into a shell (no new features) · ✅ DONE
 **Goal:** Extract the shared services (§4) out of today's single-purpose `app.js`, with photo capture re-expressed as `module: photos` running on the shell. Behavior identical; structure changed.
 - Pull identity, job context, and the upload queue out of the capture flow into shell services.
 - Introduce a minimal module registry + nav (even with one module visible).
@@ -113,7 +133,7 @@ Continues the v1 numbering (v1 = Phase 0–1.x). Field-hub work = **Phase 2.x**.
 **Acceptance:** Snap works exactly as before, but capture now calls `shell.sync.enqueue(...)` and `shell.job.current()` instead of inlined logic. A stub second module can be registered and appears in nav.
 **Effort:** ~3–4 days.
 
-### 2.1 — Field Materials Request module
+### 2.1 — Field Materials Request module · ✅ DONE
 **Goal:** A foreman picks a job, creates a request (items + qty + room + needed-by + optional photo), submits; it queues offline and uploads to the job folder `_inbox/` as `matreq__*.json`.
 - Form UI (mobile-first): add line items, attach photo via the shared capture component, urgency, note.
 - Fetch `job-data/J<jobNo>/material-request/` (vendor + standard-items catalog) for autocomplete; degrade gracefully if absent.
@@ -121,28 +141,29 @@ Continues the v1 numbering (v1 = Phase 0–1.x). Field-hub work = **Phase 2.x**.
 **Acceptance:** Submit a request on a phone offline → it uploads when back online → the `matreq__*.json` appears in the job folder with correct schema (§7).
 **Effort:** ~4–5 days.
 
-### 2.2 — Office side: Material Order ingest + publish
+### 2.2 — Office side: Material Order ingest + publish · ✅ ingest DONE / ⏳ publish next
 **Goal:** The office MO module pulls field requests and emits the field catalog.
-- **Ingest:** "Sync field requests" button (mirror of Progress Photos' Sync Inbox) → reads `matreq__*.json` from the job folder → creates draft MO line items for review → existing RFP/vendor flow takes over. Quarantine malformed records.
-- **Publish:** office writes `job-data/J<jobNo>/material-request/{vendors,items}.json` (the standard catalog the field module autocompletes against), same one-button git-publish path as `rooms.json`.
-**Acceptance:** A field request becomes a draft line item in MO within a sync cycle; estimator turns it into a vendor RFP with the existing tooling.
+- **Ingest:** ✅ built as a **sibling hub module** `material-request-inbox` (mirror of Progress Photos' Sync Inbox — *not* a button inside the 2,700-line MO form). Sync reads `matreq__*.json`, routes by jobNo, pulls the request's photos, and logs each request with a **status** (No order created / Draft / RFP Sent / Deleted, derived live from whether the order file exists). The PM clicks **Create New Order** to mint the draft MO + attach its photos, then is dropped into it; the existing RFP/vendor flow takes over. Bad/unroutable records → `_needs_review/`. The archived `<orderNo>.source.json` lets a deleted order be re-created. *(Deferred creation — the PM controls when a request becomes an order.)*
+- **Publish:** ⏳ office writes `job-data/J<jobNo>/material-request/{vendors,items}.json` (the standard catalog the field module autocompletes against), same one-button git-publish path as `rooms.json`. *(Today `items.json` is hand-seeded.)*
+**Acceptance:** A field request becomes a draft MO the estimator turns into a vendor RFP with the existing tooling. ✅ met for ingest.
 **Effort:** ~3–4 days.
 
-### 2.3 — End-to-end on a real job + polish
+### 2.3 — End-to-end on a real job + polish · ⏳ IN PROGRESS
 **Goal:** One foreman uses Snap **and** Materials Request on the active Cerberus job for a shift.
 - Real material-request round-trip (field → MO draft → RFP).
-- Address: offline edge cases, duplicate submits, identity/job-assignment papercuts, MSAL token persistence on standalone iOS PWA (the v1 "remaining unknown").
+- Address: offline edge cases, duplicate submits, identity/job-assignment papercuts. **Confirm the redirect-auth sign-in works on a real iOS standalone PWA** (the code fix is in — this is the on-device check).
 **Acceptance:** ≥1 photo batch and ≥1 material request complete end-to-end, no data loss, correct attribution.
 **Effort:** ~3–4 days, spread over real usage.
 
-| Phase | Effort | Cumulative |
+| Phase | Effort | State |
 |---|---|---|
-| 2.0 — Snap → shell | 3–4 days | 3–4 |
-| 2.1 — Field Materials Request | 4–5 days | 7–9 |
-| 2.2 — MO ingest + publish | 3–4 days | 10–13 |
-| 2.3 — Real-job E2E + polish | 3–4 days (spread) | 13–17 |
+| 2.0 — Snap → shell | 3–4 days | ✅ done, live |
+| 2.1 — Field Materials Request | 4–5 days | ✅ done, live |
+| 2.2 — MO ingest | 3–4 days | ✅ done |
+| 2.2b — catalog publish | ~1 day | ⏳ next |
+| 2.3 — Real-job E2E + polish | 3–4 days (spread) | ⏳ in progress |
 
-**~3–4 weeks part-time** to a two-module field hub feeding the office MO module.
+**~3–4 weeks part-time** to a two-module field hub feeding the office MO module — **the core round-trip is built and live**; remaining is catalog publish + real-job hardening.
 
 ---
 
@@ -175,10 +196,19 @@ Record dropped at `<jobFolder>/_inbox/matreq__<ISO8601compact>__<nonce>.json`:
 
 ## 8. Open decisions / risks
 
-- **MSAL in Melton's tenant.** Currently the personal-Azure registration (`239f56eb-22b0-4af6-86d4-272126d390a9`, `Files.ReadWrite.AppFolder`). As the field hub's identity layer for multiple foremen, replicating it in Melton's M365 tenant moves from "nice" to "required." (De-risked already; it's an IT ask.)
+### Resolved during the 2.x build
+- **iOS PWA sign-in** *(was the §2.3 "remaining unknown")*. Popups are blocked in standalone PWAs → MSAL switched to **redirect auth** (`acquireTokenRedirect` + `handleRedirectPromise`). The full-page redirect would lose an in-memory queue, so the **sync outbox is now durable (IndexedDB)** and boot **auto-resumes** the upload on return. The iOS share-sheet remains the no-MSAL fallback. *(On-device confirmation of the redirect itself is the last 2.3 check.)*
+- **Photo collision in the shared inbox.** A request's attachment is a `.jpg` Progress Photos would otherwise claim. Fixed with a **tag-and-route rule**: attachments are named `MRQ<job>__…`; the Progress Photos mover skips `MRQ*`; the Material Requests ingest attaches them to the order.
+- **Where uploads land.** Confirmed: MSAL direct upload writes to the OneDrive **AppFolder** (`/Apps/<app-display-name>/`); the office connects that synced folder in both Progress Photos and the new Material Requests module.
+- **Order-creation control.** Office ingest does **not** auto-create orders — deferred, status-driven **Create New Order** (the PM decides when a request becomes an order).
+- **Stale deploys on phones.** SW hardened with `cache:'reload'` on precache + navigation, so a version bump reliably reaches the device on next launch.
+
+### Still open
+- **MSAL in Melton's tenant.** Currently the personal-Azure registration (`239f56eb-22b0-4af6-86d4-272126d390a9`, `Files.ReadWrite.AppFolder`). For multi-foreman identity, replicating it in Melton's M365 tenant moves from "nice" to "required." (IT ask.)
 - **Job assignment / least privilege.** A foreman should see only their jobs. Where does the job list + assignment live, and who maintains it? (Office hub publishes a per-user job list?)
-- **AppFolder vs per-job path.** The good upload path today targets the sandboxed AppFolder (`/Apps/Melton Snap/`). Per-job inbox (§3) needs writing into a *specific* job's folder — which likely needs broader Graph scope than `Files.ReadWrite.AppFolder`. Resolve before leaving the testing inbox.
-- **Offline conflict / dedupe.** Sync outbox must be idempotent (nonce in filename) so a retried upload doesn't double-submit.
+- **AppFolder vs per-job path.** Uploads target the sandboxed AppFolder. The §3 per-job inbox needs writing into a *specific* job's folder — likely broader Graph scope than `Files.ReadWrite.AppFolder`. Resolve before leaving the shared testing inbox.
+- **Durability of un-actioned requests.** Synced-but-no-order-yet requests live in the office browser's IndexedDB (the inbox is consumed on sync); *created* orders are durable on disk. Fine for the single-PC pilot; revisit if it must survive a browser wipe.
+- **Offline conflict / dedupe.** Sync outbox is idempotent (nonce in filename) so a retried upload doesn't double-submit.
 - **Android.** Still iOS-first; revisit if Android phones enter the field.
 
 ---
@@ -200,25 +230,28 @@ Record dropped at `<jobFolder>/_inbox/matreq__<ISO8601compact>__<nonce>.json`:
 melton-snap/                              ← the Field Team Hub (this repo, GitHub Pages)
 ├── PLAN.md                               ← v1 capture plan (foundation)
 ├── FIELD-HUB-PLAN.md                     ← this file
-├── index.html                            ← shell entry
-├── shell/                                ← NEW (Phase 2.0): cloud shell + shared services
-│   ├── identity.js   (MSAL login)
-│   ├── job.js        (job context/selection)
-│   ├── sync.js       (offline outbox; binary + JSON)
-│   ├── nav.js        (module registry + switcher)
-│   └── capture.js    (shared camera/attach)
+├── index.html  styles.css  sw.js  manifest.webmanifest   ← shell entry + chrome
+├── shell/                                ← cloud shell + shared services (Phase 2.0)
+│   ├── core.js       (namespace, logger, shared banner, util)
+│   ├── identity.js   (MSAL — redirect auth)
+│   ├── job.js        (job context + bootstrap/error views)
+│   ├── sync.js       (durable IndexedDB outbox; binary + JSON; Graph upload + tray)
+│   ├── capture.js    (shared camera/attach)
+│   ├── nav.js        (module registry + top tab bar)
+│   └── boot.js       (orchestrator: SW reg + app-update + auto-resume)
 ├── modules/
-│   ├── photos/                           ← today's app.js, re-expressed as a module
-│   └── material-request/                 ← NEW (Phase 2.1)
-├── job-data/ J<jobNo> / <module>/        ← office→field publish feed
-│   ├── photos/  (rooms.json, floorplans)
-│   └── material-request/ (vendors.json, items.json)
-├── sw.js  manifest.webmanifest  styles.css
+│   ├── photos/photos.js                  ← v1 capture, re-expressed as a module
+│   └── material-request/material-request.js  ← Phase 2.1 form
+├── job-data/ J<jobNo>/                   ← office→field publish feed (GitHub Pages)
+│   ├── rooms.json + floor-*.svg          ← Snap fetches (photos config)
+│   └── material-request/items.json       ← Materials autocomplete (hand-seeded; 2.2b publishes for real)
+└── v1/                                   ← FROZEN pre-refactor Snap (emergency fallback; snapv1-* SW namespace)
 
-C:\Users\aflores\hub\  (office hub)
+C:\Users\aflores\hub\  (office hub — local files, not git)
 └── modules/
-    ├── progress-photos/                  ← built (field→office for photos)
-    └── material-order/                   ← gains "Sync field requests" ingest (Phase 2.2)
+    ├── progress-photos/                  ← built (field→office for photos); now SKIPS MRQ* files
+    ├── material-order/                   ← existing capture form (draft orders are written here)
+    └── material-request-inbox/           ← NEW (Phase 2.2): field-request ingest + status log + Create New Order
 ```
 
 ---
