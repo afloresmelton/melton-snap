@@ -21,6 +21,8 @@
   // ── Module state (what can't live in the DOM) ───────────────────────────
   let attachments = [];      // [{ file, name, url }] nameplate photos, pre-submit
   let catalogUnits = {};     // lower(description) -> unit, for unit auto-fill
+  let catalog = [];          // [{ description, unit, search }] for keyword autocomplete
+  let autoInput = null;      // the .mr-desc input the autocomplete is attached to
   let urgency = 'normal';    // 'normal' | 'rush'
 
   // ── Mount: render the form + wire it ────────────────────────────────────
@@ -68,8 +70,10 @@
       </button>
       <p id="mrStatus" class="hint"></p>
 
-      <datalist id="mrItemList"></datalist>`;
+      <div id="mrAuto" class="mr-auto" hidden></div>`;
 
+    injectAutoStyles();
+    document.getElementById('mrAuto').addEventListener('click', onAutoPick);
     document.getElementById('mrAddItem').addEventListener('click', () => { addItemRow(); document.querySelector('#mrItems .mr-item:last-child .mr-desc').focus(); });
     document.getElementById('mrAttach').addEventListener('click', onAttach);
     document.getElementById('mrSubmit').addEventListener('click', onSubmit);
@@ -93,7 +97,7 @@
     const row = document.createElement('div');
     row.className = 'mr-item';
     row.innerHTML = `
-      <input class="mr-desc" type="text" list="mrItemList" placeholder="Item description" value="${esc(desc || '')}">
+      <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
       <div class="mr-item-meta">
         <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || 1}" aria-label="Quantity">
         <input class="mr-unit" type="text" value="${esc(unit || 'ea')}" placeholder="ea" aria-label="Unit">
@@ -106,10 +110,14 @@
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
       updateSubmit();
     });
-    row.querySelector('.mr-desc').addEventListener('input', (e) => {
+    const descEl = row.querySelector('.mr-desc');
+    descEl.addEventListener('input', (e) => {
       autofillUnit(row, e.target.value);
       updateSubmit();
+      openAuto(e.target);
     });
+    descEl.addEventListener('focus', (e) => openAuto(e.target));
+    descEl.addEventListener('blur', () => setTimeout(closeAuto, 180)); // delay so a tap on a result lands
   }
 
   function readItems() {
@@ -251,16 +259,74 @@
       const res = await fetch(url.href);
       if (!res.ok) { shell.log(`No items catalog (HTTP ${res.status}) — free text only`); return; }
       const data = await res.json();
-      const list = document.getElementById('mrItemList');
       catalogUnits = {};
-      list.innerHTML = (data.items || []).map(it => {
-        if (it.unit) catalogUnits[String(it.description).toLowerCase()] = it.unit;
-        return `<option value="${esc(it.description)}">`;
-      }).join('');
-      shell.log(`✓ Items catalog: ${(data.items || []).length} entries`);
+      catalog = (data.items || []).filter(it => it && it.description).map(it => {
+        const desc = String(it.description);
+        if (it.unit) catalogUnits[desc.toLowerCase()] = it.unit;
+        // search index = description + office-supplied keywords (synonyms), so a
+        // foreman typing "one hole strap" finds the abbreviated "1-H STRAP".
+        const search = (desc + ' ' + (it.keywords || '')).toLowerCase();
+        return { description: desc, unit: it.unit || '', search };
+      });
+      shell.log(`✓ Items catalog: ${catalog.length} entries`);
     } catch (err) {
       shell.log(`Items catalog load failed: ${err.message}`);
     }
+  }
+
+  // ── Custom autocomplete (searches description + keywords; iOS-safe) ───────
+  function openAuto(input) {
+    autoInput = input;
+    const auto = document.getElementById('mrAuto');
+    if (!auto) return;
+    const q = input.value.trim().toLowerCase();
+    if (!q || !catalog.length) { auto.hidden = true; return; }
+    const terms = q.split(/\s+/);
+    const hits = [];
+    for (let i = 0; i < catalog.length && hits.length < 12; i++) {
+      const s = catalog[i].search;
+      let ok = true;
+      for (let t = 0; t < terms.length; t++) { if (s.indexOf(terms[t]) < 0) { ok = false; break; } }
+      if (ok) hits.push(catalog[i]);
+    }
+    // hide if the only match is exactly what's already typed
+    if (!hits.length || (hits.length === 1 && hits[0].description.toLowerCase() === q)) { auto.hidden = true; return; }
+    auto._hits = hits;
+    auto.innerHTML = hits.map((it, idx) =>
+      `<div class="mr-auto-item" data-i="${idx}">${esc(it.description)}${it.unit ? `<span class="mr-auto-unit">${esc(it.unit)}</span>` : ''}</div>`
+    ).join('');
+    const r = input.getBoundingClientRect();
+    auto.style.left = r.left + 'px';
+    auto.style.top = r.bottom + 'px';
+    auto.style.width = r.width + 'px';
+    auto.hidden = false;
+  }
+  function closeAuto() { const a = document.getElementById('mrAuto'); if (a) a.hidden = true; }
+  function onAutoPick(e) {
+    const item = e.target.closest('.mr-auto-item');
+    if (!item || !autoInput) return;
+    const auto = document.getElementById('mrAuto');
+    const hit = auto._hits && auto._hits[+item.dataset.i];
+    if (!hit) return;
+    autoInput.value = hit.description;
+    const row = autoInput.closest('.mr-item');
+    if (row) autofillUnit(row, hit.description);
+    updateSubmit();
+    auto.hidden = true;
+  }
+  function injectAutoStyles() {
+    if (document.getElementById('mrAutoStyle')) return;
+    const s = document.createElement('style');
+    s.id = 'mrAutoStyle';
+    s.textContent =
+      '.mr-auto{position:fixed;z-index:2000;max-height:46vh;overflow:auto;margin-top:3px;' +
+      'background:var(--panel);border:1px solid var(--border);border-radius:12px;' +
+      'box-shadow:0 12px 32px rgba(0,0,0,.55);-webkit-overflow-scrolling:touch}' +
+      '.mr-auto-item{display:flex;justify-content:space-between;align-items:center;gap:12px;' +
+      'padding:13px 14px;font-size:15px;color:var(--text);border-bottom:1px solid var(--border)}' +
+      '.mr-auto-item:last-child{border-bottom:0}.mr-auto-item:active{background:var(--chip-bg)}' +
+      '.mr-auto-unit{flex:none;color:var(--muted);font-size:13px}';
+    document.head.appendChild(s);
   }
 
   // ── Register ────────────────────────────────────────────────────────────
