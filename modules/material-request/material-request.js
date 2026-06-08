@@ -227,7 +227,15 @@
     root.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('mr-asm')) e.target.hidden = true; });
 
     // Auto-save the active running list as the foreman builds it
-    document.getElementById('mrItems').addEventListener('input', () => { updateSubmit(); autosave(); });
+    document.getElementById('mrItems').addEventListener('input', (e) => {
+      if (e.target.classList && e.target.classList.contains('mr-desc')) {
+        const row = e.target.closest('.mr-item');
+        // Only drop the "combined" cue if the description actually changed to a
+        // DIFFERENT material — keep it through typo/case/whitespace fixes.
+        if (row && (row._adds || 0) >= 2 && normDesc(e.target.value) !== row._mergedDesc) clearCombined(row);
+      }
+      updateSubmit(); autosave();
+    });
     document.getElementById('mrListName').addEventListener('input', autosave);
     document.getElementById('mrNeededBy').addEventListener('input', autosave);
     document.getElementById('mrNote').addEventListener('input', autosave);
@@ -254,7 +262,8 @@
         <button type="button" class="mr-item-photo" aria-label="Attach a photo to this item" title="Attach a photo to this item — pick from your photos or paste a screenshot">📷</button>
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>
-      <div class="mr-item-thumbs" hidden></div>`;
+      <div class="mr-item-thumbs" hidden></div>
+      <div class="mr-combined" hidden></div>`;
     if (afterRow && afterRow.parentNode === wrap) afterRow.after(row);
     else wrap.appendChild(row);
 
@@ -277,6 +286,44 @@
     });
     row.querySelector('.mr-item-photo').addEventListener('click', () => openPhotoSheet({ kind: 'item', row }));
     return row;
+  }
+
+  // Add a material, but if a line with the SAME description already exists, sum
+  // into it instead of appending a duplicate (so the list stays short and the
+  // order shows one line per item — no scattered hex-nut lines).
+  function normDesc(s) { return String(s || '').trim().replace(/\s+/g, ' ').toUpperCase(); }
+  function mergeItemRow(desc, qty, source) {
+    const want = normDesc(desc);
+    const hit = want && [...document.querySelectorAll('#mrItems .mr-item')]
+      .find(r => { const v = r.querySelector('.mr-desc').value; return v.trim() && normDesc(v) === want; });
+    if (hit) {
+      const qEl = hit.querySelector('.mr-qty');
+      qEl.value = (parseInt(qEl.value, 10) || 1) + (qty || 1);
+      hit._adds = (hit._adds || 1) + 1;            // ≥2 contributions = consolidated line
+      if (source !== 'assembly') hit._asmOnly = false;
+      hit._mergedDesc = want;                      // the material this summed line represents
+      markCombined(hit);
+      return hit;
+    }
+    const row = addItemRow(desc, qty);
+    row._adds = 1;
+    row._asmOnly = (source === 'assembly');
+    row._mergedDesc = want;
+    return row;
+  }
+  // Discrete "this line is a summed total" note on consolidated rows.
+  function combinedText(asmOnly) { return asmOnly ? 'from multiple assemblies' : 'combined'; }
+  function markCombined(row) {
+    const el = row.querySelector('.mr-combined');
+    if (!el) return;
+    const combined = (row._adds || 0) >= 2;
+    el.hidden = !combined;
+    if (combined) el.textContent = combinedText(!!row._asmOnly);
+  }
+  function clearCombined(row) {            // editing a line's description resets its provenance
+    if (!row) return;
+    row._adds = 1; row._asmOnly = false;
+    const el = row.querySelector('.mr-combined'); if (el) el.hidden = true;
   }
 
   function hasItems() {
@@ -440,19 +487,29 @@
   // ── Submit → build §7 record, enqueue photos + JSON through shell.sync ───
   async function onSubmit() {
     // Build items straight from the rows so each line keeps its own photos[].
-    const items = [];
-    const sentItems = [];      // local Sent history (keeps File blobs + a received flag)
-    const itemPhotoFiles = [];
+    // Consolidate duplicate materials (same description) into one summed line —
+    // safety net for any dupes the live merge didn't catch (e.g. typed by hand),
+    // so the hub/supply house always sees one line per item with the full qty.
+    const byDesc = new Map();   // normDesc -> { description, qty, photos, rows, anyCombined, allAsm }
     for (const row of document.querySelectorAll('#mrItems .mr-item')) {
       const description = row.querySelector('.mr-desc').value.trim();
       if (!description) continue;
       const qty = Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1);
-      const photos = row._photos || [];
-      items.push({ description, qty, unit: '', note: '', photos: photos.map(p => p.name) });
-      sentItems.push({ description, qty, photos: photos.map(p => ({ name: p.name, file: p.file })), received: false, received_at: null });
-      itemPhotoFiles.push(...photos);
+      const photos = (row._photos || []).map(p => ({ name: p.name, file: p.file, url: p.url }));
+      const rowCombined = (row._adds || 1) >= 2, rowAsmOnly = !!row._asmOnly;
+      const key = normDesc(description);
+      const prev = byDesc.get(key);
+      if (prev) { prev.qty += qty; prev.photos.push(...photos); prev.rows += 1; prev.anyCombined = prev.anyCombined || rowCombined; prev.allAsm = prev.allAsm && rowAsmOnly; }
+      else byDesc.set(key, { description, qty, photos, rows: 1, anyCombined: rowCombined, allAsm: rowAsmOnly });
     }
-    if (!items.length) return;
+    const merged = [...byDesc.values()];
+    if (!merged.length) return;
+    // A line is "combined" if multiple rows merged at submit OR a row was already
+    // consolidated live; note it so the order + Previous Orders show the cue.
+    const noteFor = (c) => ((c.rows >= 2 || c.anyCombined) ? combinedText(c.allAsm) : '');
+    const items = merged.map(c => ({ description: c.description, qty: c.qty, unit: '', note: '', photos: c.photos.map(p => p.name), combined_note: noteFor(c) }));
+    const sentItems = merged.map(c => ({ description: c.description, qty: c.qty, photos: c.photos.map(p => ({ name: p.name, file: p.file })), received: false, received_at: null, combined_note: noteFor(c) }));
+    const itemPhotoFiles = merged.flatMap(c => c.photos);
 
     // photos[] = general (request-level) + every line's linked photos.
     const generalPhotoMeta = attachments.map(a => ({ name: a.name, file: a.file }));
@@ -663,7 +720,7 @@
     // sheet open so the foreman can add several items in a row.
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
-    addItemRow(hit.description, 1);
+    mergeItemRow(hit.description, 1, 'catalog');
     updateSubmit();
     toast(`Added "${hit.description}"`);
     autosave();
@@ -709,6 +766,9 @@
       '.mr-recv-desc{flex:1 1 auto;color:var(--text)}' +
       '.mr-recv-row.done .mr-recv-desc{text-decoration:line-through;color:var(--muted)}' +
       '.mr-sent-note{font-size:13px;color:var(--muted);margin-top:6px}' +
+      '.mr-combined{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
+      '.mr-combined[hidden]{display:none}' +
+      '.mr-combined-inline{color:var(--muted);font-style:italic;font-size:12px}' +
       '.mr-rush{color:#f85149;font-size:12px;font-weight:700}' +
       '.mr-confirm{position:fixed;inset:0;z-index:3200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px}' +
       '.mr-confirm[hidden]{display:none}' +
@@ -947,7 +1007,7 @@
     // Drop a single empty starter row so the kit's items read clean.
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
-    for (const it of items) addItemRow(it.description, it.qty);
+    for (const it of items) mergeItemRow(it.description, it.qty, 'assembly');
     updateSubmit();
     const name = asmCurrent.name;
     closeAsm();
@@ -1036,7 +1096,8 @@
     return [...document.querySelectorAll('#mrItems .mr-item')].map(row => ({
       description: row.querySelector('.mr-desc').value.trim(),
       qty: Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1),
-      photos: (row._photos || []).map(p => ({ name: p.name, file: p.file }))
+      photos: (row._photos || []).map(p => ({ name: p.name, file: p.file })),
+      adds: row._adds || 1, asmOnly: !!row._asmOnly
     })).filter(it => it.description || it.photos.length);
   }
   function collectIntoActive() {
@@ -1083,6 +1144,7 @@
         row._photos = it.photos.map(p => ({ name: p.name, file: p.file, url: URL.createObjectURL(p.file) }));
         renderItemThumbs(row);
       }
+      if (it) { row._adds = it.adds || 1; row._asmOnly = !!it.asmOnly; row._mergedDesc = normDesc(it.description || ''); markCombined(row); }
     }
     document.getElementById('mrNeededBy').value = d.needed_by || '';
     document.getElementById('mrNote').value = d.note || '';
@@ -1192,7 +1254,7 @@
       `<label class="mr-recv-row${it.received ? ' done' : ''}">
         <input type="checkbox" data-sent="${esc(s.id)}" data-i="${i}"${it.received ? ' checked' : ''}>
         <span class="mr-recv-qty">${it.qty}</span>
-        <span class="mr-recv-desc">${esc(it.description)}</span>
+        <span class="mr-recv-desc">${esc(it.description)}${it.combined_note ? ` <span class="mr-combined-inline">(${esc(it.combined_note)})</span>` : ''}</span>
       </label>`).join('');
     return `<div class="mr-sent-card" data-id="${esc(s.id)}">
       <button type="button" class="mr-sent-head" data-toggle="${esc(s.id)}">
