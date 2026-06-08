@@ -300,7 +300,11 @@
         // search index = description + office-supplied keywords (synonyms), so a
         // foreman typing "one hole strap" finds the abbreviated "1-H STRAP".
         const search = (desc + ' ' + (it.keywords || '')).toLowerCase();
-        return { description: desc, unit: it.unit || '', search };
+        // dn = punctuation-normalized description used to RANK matches
+        // ('3/4" EMT CONDUIT' -> '3 4 emt conduit') so an exact/tight hit wins
+        // even though the search index also matches keywords.
+        const dn = desc.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        return { description: desc, unit: it.unit || '', search, dn };
       });
       shell.log(`✓ Items catalog: ${catalog.length} entries`);
     } catch (err) {
@@ -316,13 +320,36 @@
     const q = input.value.trim().toLowerCase();
     if (!q || !catalog.length) { auto.hidden = true; return; }
     const terms = q.split(/\s+/);
-    const hits = [];
-    for (let i = 0; i < catalog.length && hits.length < 12; i++) {
+    const nTerms = terms.length;
+    const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();              // normalized query
+    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
+    // 1) collect EVERY substring-AND match (description + office keywords) so a
+    //    keyword synonym ("one hole" -> "1-H STRAP") still surfaces.
+    const matches = [];
+    for (let i = 0; i < catalog.length; i++) {
       const s = catalog[i].search;
       let ok = true;
-      for (let t = 0; t < terms.length; t++) { if (s.indexOf(terms[t]) < 0) { ok = false; break; } }
-      if (ok) hits.push(catalog[i]);
+      for (let t = 0; t < nTerms; t++) { if (s.indexOf(terms[t]) < 0) { ok = false; break; } }
+      if (ok) matches.push(catalog[i]);
     }
+    // 2) ...then RANK by relevance so the tightest match is #1 (not file order):
+    //    description hits beat keyword-only hits; exact/prefix and brevity win.
+    for (let i = 0; i < matches.length; i++) {
+      const dn = matches[i].dn || '';
+      let sc = 0;
+      if (dn === qn) sc += 1000;                       // exact description (punctuation-insensitive)
+      else if (dn.indexOf(qn) === 0) sc += 300;        // description starts with the query
+      else if (qn && dn.indexOf(qn) >= 0) sc += 150;   // query appears contiguously in the desc
+      let inDesc = 0;
+      for (let t = 0; t < termsN.length; t++) { if (dn.indexOf(termsN[t]) >= 0) inDesc++; }
+      sc += inDesc * 30;                               // each query word found in the DESCRIPTION
+      if (termsN.length && inDesc === termsN.length) sc += 60; // ALL words in desc (vs keyword-only)
+      const dWords = dn ? dn.split(' ').length : 0;
+      sc -= Math.max(0, dWords - nTerms) * 12;         // looser match (extra words) ranks lower
+      matches[i]._sc = sc;
+    }
+    matches.sort((a, b) => b._sc - a._sc);
+    const hits = matches.slice(0, 12);
     // hide if the only match is exactly what's already typed
     if (!hits.length || (hits.length === 1 && hits[0].description.toLowerCase() === q)) { auto.hidden = true; return; }
     auto._hits = hits;
