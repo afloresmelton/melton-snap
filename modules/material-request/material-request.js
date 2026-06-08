@@ -461,7 +461,7 @@
     try {
       await dbPut('sent', {
         id: mrId('s'), sent_at: new Date().toISOString(), jobNo: shell.job.jobNo(),
-        requester: shell.job.current().me, name: activeDraft ? (activeDraft.name || '') : '',
+        requester: shell.job.current().me, name: activeDraft ? displayName(activeDraft) : '',
         needed_by: record.needed_by || '', urgency, note: record.note || '',
         generalPhotos: generalPhotoMeta, items: sentItems
       });
@@ -955,6 +955,30 @@
   }
   function setActiveDraft(d) { activeDraft = d; try { localStorage.setItem('mr-active-draft', d.id); } catch (e) {} }
 
+  // A list with truly no input (no items, name, note, need-by, photos, and
+  // default urgency) is discarded — not saved — when you move off it.
+  function isEmptyDraft(d) {
+    return !d || ((!d.items || !d.items.length) && !d.name && !d.note && !d.needed_by && (!d.generalPhotos || !d.generalPhotos.length) && (!d.urgency || d.urgency === 'normal'));
+  }
+  // Auto display name (date + time the list was started) so unnamed lists are
+  // differentiated instead of a pile of "Untitled list". The STORED name stays
+  // '' until the foreman types one (so the empty-list check above still works).
+  function defaultName(d) {
+    const t = new Date(d && d.created_at ? d.created_at : Date.now());
+    if (isNaN(t)) return 'List';
+    let h = t.getHours(); const ap = h < 12 ? 'a' : 'p'; h = h % 12 || 12;
+    return `List ${t.getMonth() + 1}/${t.getDate()} ${h}:${String(t.getMinutes()).padStart(2, '0')}${ap}`;
+  }
+  function displayName(d) { return (d && d.name && d.name.trim()) ? d.name : defaultName(d); }
+  async function stashActive() {
+    if (!activeDraft) return;
+    collectIntoActive();
+    try {
+      if (isEmptyDraft(activeDraft)) await dbDel('drafts', activeDraft.id);
+      else await dbPut('drafts', activeDraft);
+    } catch (e) {}
+  }
+
   // DOM → draft items (keep only rows with content). Photos keep their File blobs.
   function rowsToItems() {
     return [...document.querySelectorAll('#mrItems .mr-item')].map(row => ({
@@ -1012,7 +1036,7 @@
     document.getElementById('mrNote').value = d.note || '';
     urgency = d.urgency || 'normal';
     document.querySelectorAll('#mrUrgency .chip').forEach(c => c.classList.toggle('active', c.dataset.urgency === urgency));
-    const nameEl = document.getElementById('mrListName'); if (nameEl) nameEl.value = d.name || '';
+    const nameEl = document.getElementById('mrListName'); if (nameEl) { nameEl.value = d.name || ''; nameEl.placeholder = defaultName(d); }
     renderAttachments();
     _loadingDraft = false;
     updateSubmit();
@@ -1041,7 +1065,7 @@
     if (!all.length) { body.innerHTML = '<p class="hint" style="text-align:left">No saved lists yet.</p>'; return; }
     body.innerHTML = all.map(d => {
       const n = (d.items || []).length;
-      const nm = d.name || 'Untitled list';
+      const nm = displayName(d);
       const active = activeDraft && d.id === activeDraft.id;
       return `<div class="mr-list-row${active ? ' active' : ''}" data-id="${esc(d.id)}">
         <div class="mr-list-main"><div class="mr-list-name">${esc(nm)}${active ? ' • current' : ''}</div>
@@ -1057,11 +1081,11 @@
   }
   async function switchDraft(id) {
     if (activeDraft && id === activeDraft.id) { closeDrafts(); return; }
-    await saveActive();
+    await stashActive();
     const d = (await dbAll('drafts')).find(x => x.id === id);
     if (!d) return;
     setActiveDraft(d); populateDraft(d); closeDrafts();
-    toast(`Opened "${d.name || 'Untitled list'}"`);
+    toast(`Opened "${displayName(d)}"`);
   }
   async function deleteDraft(id) {
     await dbDel('drafts', id);
@@ -1074,7 +1098,7 @@
     renderDrafts();
   }
   async function newList() {
-    await saveActive();
+    await stashActive();
     const d = newDraft();
     try { await dbPut('drafts', d); } catch (e) {}
     setActiveDraft(d); populateDraft(d); closeDrafts();
