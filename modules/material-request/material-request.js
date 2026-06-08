@@ -39,8 +39,14 @@
         <p class="hint module-sub">Tell the office what you need on this job. It queues with your photos and uploads together.</p>
       </section>
 
+      <section class="field mr-toolbar">
+        <button type="button" id="mrLists" class="mr-tool-btn">📋 Lists</button>
+        <input id="mrListName" class="mr-listname" type="text" placeholder="Untitled list" autocomplete="off" aria-label="List name">
+        <button type="button" id="mrSent" class="mr-tool-btn">🕓 Sent</button>
+      </section>
+
       <section class="field">
-        <label>Items</label>
+        <label>Items <span id="mrSaved" class="mr-saved"></span></label>
         <div id="mrItems" class="mr-items"></div>
         <div class="mr-add-row">
           <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
@@ -93,6 +99,31 @@
         </div>
       </div>
 
+      <div id="mrDrafts" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <strong>My lists</strong>
+            <button type="button" id="mrDraftsClose" class="ghost-link">✕</button>
+          </div>
+          <div class="mr-cat-body">
+            <button type="button" id="mrNewList" class="mr-photo-opt">＋ New list</button>
+            <div id="mrDraftsList" class="mr-asm-results"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="mrSentSheet" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <strong>Sent orders</strong>
+            <button type="button" id="mrSentClose" class="ghost-link">✕</button>
+          </div>
+          <div class="mr-cat-body">
+            <div id="mrSentList" class="mr-asm-results"></div>
+          </div>
+        </div>
+      </div>
+
       <div id="mrPhotoSheet" class="mr-asm" hidden>
         <div class="mr-asm-card">
           <div class="mr-asm-head">
@@ -133,6 +164,7 @@
       document.querySelectorAll('#mrUrgency .chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       urgency = chip.dataset.urgency;
+      autosave();
     });
 
     document.getElementById('mrAddAsm').addEventListener('click', openAsm);
@@ -163,7 +195,23 @@
     document.getElementById('mrPhotoLib').addEventListener('click', () => { closePhotoSheet(); photoFileInput.value = ''; photoFileInput.click(); });
     document.getElementById('mrPhotoPaste').addEventListener('click', pasteFromClipboard);
 
-    addItemRow();          // start with one empty row
+    // Running lists (drafts) + sent history
+    document.getElementById('mrLists').addEventListener('click', openDrafts);
+    document.getElementById('mrDraftsClose').addEventListener('click', closeDrafts);
+    document.getElementById('mrNewList').addEventListener('click', newList);
+    document.getElementById('mrDraftsList').addEventListener('click', onDraftsClick);
+    document.getElementById('mrSent').addEventListener('click', openSent);
+    document.getElementById('mrSentClose').addEventListener('click', closeSent);
+    document.getElementById('mrSentList').addEventListener('click', onSentClick);
+    document.getElementById('mrSentList').addEventListener('change', onSentChange);
+
+    // Auto-save the active running list as the foreman builds it
+    document.getElementById('mrItems').addEventListener('input', () => { updateSubmit(); autosave(); });
+    document.getElementById('mrListName').addEventListener('input', autosave);
+    document.getElementById('mrNeededBy').addEventListener('input', autosave);
+    document.getElementById('mrNote').addEventListener('input', autosave);
+
+    initDrafts();          // restore the active running list (or start a fresh one)
     renderAttachments();
     updateSubmit();
     loadCatalog();         // item autocomplete (graceful if absent)
@@ -194,9 +242,9 @@
       row.remove();
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
       updateSubmit();
+      autosave();
     });
     const descEl = row.querySelector('.mr-desc');
-    descEl.addEventListener('input', updateSubmit);
     // Enter in the description adds the next line and jumps to its (blank) qty —
     // fast keyboard entry: qty → Tab → desc → Enter → next qty → …
     descEl.addEventListener('keydown', (e) => {
@@ -242,6 +290,7 @@
       if (a && a.url) URL.revokeObjectURL(a.url);
       attachments.splice(i, 1);
       renderAttachments();
+      autosave();
     }));
   }
 
@@ -262,6 +311,7 @@
     (row._photos = row._photos || []).push({ file: named, name: named.name, url: URL.createObjectURL(named) });
     renderItemThumbs(row);
     toast('Photo linked');
+    autosave();
   }
   function renderItemThumbs(row) {
     const wrap = row.querySelector('.mr-item-thumbs');
@@ -277,6 +327,7 @@
       if (p && p.url) URL.revokeObjectURL(p.url);
       row._photos.splice(i, 1);
       renderItemThumbs(row);
+      autosave();
     }));
   }
   // ── Photo chooser (shared by the general add + each line's 📷) ─────────────
@@ -303,6 +354,7 @@
       attachments.push({ file: named, name: named.name, url: URL.createObjectURL(named) });
       renderAttachments();
       toast('Photo added');
+      autosave();
     }
   }
   async function onPhotoFilePicked() {
@@ -368,6 +420,7 @@
   async function onSubmit() {
     // Build items straight from the rows so each line keeps its own photos[].
     const items = [];
+    const sentItems = [];      // local Sent history (keeps File blobs + a received flag)
     const itemPhotoFiles = [];
     for (const row of document.querySelectorAll('#mrItems .mr-item')) {
       const description = row.querySelector('.mr-desc').value.trim();
@@ -375,11 +428,13 @@
       const qty = Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1);
       const photos = row._photos || [];
       items.push({ description, qty, unit: '', note: '', photos: photos.map(p => p.name) });
+      sentItems.push({ description, qty, photos: photos.map(p => ({ name: p.name, file: p.file })), received: false, received_at: null });
       itemPhotoFiles.push(...photos);
     }
     if (!items.length) return;
 
     // photos[] = general (request-level) + every line's linked photos.
+    const generalPhotoMeta = attachments.map(a => ({ name: a.name, file: a.file }));
     const allPhotos = [...attachments.map(a => a.name), ...items.flatMap(it => it.photos)];
     const record = buildRecord(items, allPhotos);
 
@@ -401,7 +456,23 @@
     });
 
     shell.log(`Materials request queued: ${fname} (${items.length} items, ${allPhotos.length} photo(s))`);
-    resetForm();
+
+    // Local Sent history — reference later + check off as materials arrive.
+    try {
+      await dbPut('sent', {
+        id: mrId('s'), sent_at: new Date().toISOString(), jobNo: shell.job.jobNo(),
+        requester: shell.job.current().me, name: activeDraft ? (activeDraft.name || '') : '',
+        needed_by: record.needed_by || '', urgency, note: record.note || '',
+        generalPhotos: generalPhotoMeta, items: sentItems
+      });
+    } catch (err) { shell.log(`Sent-history save failed: ${err.message}`); }
+
+    // The active running list has been sent — drop it and start a fresh one.
+    try { if (activeDraft) await dbDel('drafts', activeDraft.id); } catch (e) {}
+    const fresh = newDraft();
+    try { await dbPut('drafts', fresh); } catch (e) {}
+    setActiveDraft(fresh);
+    populateDraft(fresh);   // reset the form to the new empty list
 
     const status = document.getElementById('mrStatus');
     status.style.color = '#3fb950';
@@ -561,6 +632,7 @@
     addItemRow(hit.description, 1);
     updateSubmit();
     toast(`Added "${hit.description}"`);
+    autosave();
   }
   function injectAutoStyles() {
     if (document.getElementById('mrAutoStyle')) return;
@@ -579,6 +651,31 @@
       '.mr-photo-opts{display:flex;flex-direction:column;gap:10px;padding:14px}' +
       '.mr-photo-opt{width:100%;text-align:left;padding:16px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;color:var(--text);cursor:pointer}' +
       '.mr-photo-opt:active{background:var(--chip-bg)}' +
+      '.mr-toolbar{display:flex;align-items:center;gap:8px}' +
+      '.mr-tool-btn{flex:0 0 auto;padding:9px 12px;font-size:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer}' +
+      '.mr-tool-btn:active{background:var(--chip-bg)}' +
+      '.mr-listname{flex:1 1 auto;min-width:0;padding:9px 12px;font-size:15px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
+      '.mr-saved{font-size:12px;color:var(--muted);opacity:0;transition:opacity .2s}' +
+      '.mr-saved.show{opacity:1}' +
+      '.mr-list-row{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--border)}' +
+      '.mr-list-row.active{background:var(--chip-bg)}' +
+      '.mr-list-main{flex:1 1 auto;min-width:0;cursor:pointer}' +
+      '.mr-list-name{font-size:15px;color:var(--text)}' +
+      '.mr-list-meta{font-size:12px;color:var(--muted);margin-top:2px}' +
+      '.mr-list-del{flex:0 0 auto;background:transparent;border:0;font-size:16px;cursor:pointer;padding:6px}' +
+      '.mr-sent-card{border-bottom:1px solid var(--border)}' +
+      '.mr-sent-head{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:transparent;border:0;padding:12px 4px;cursor:pointer;color:var(--text)}' +
+      '.mr-sent-title{font-size:15px}' +
+      '.mr-sent-sub{font-size:12px;color:var(--muted)}' +
+      '.mr-sent-body{padding:2px 4px 12px}' +
+      '.mr-sent-when{font-size:12px;color:var(--muted);margin-bottom:6px}' +
+      '.mr-recv-row{display:flex;align-items:center;gap:10px;padding:8px 2px}' +
+      '.mr-recv-row input{width:22px;height:22px;flex:0 0 auto}' +
+      '.mr-recv-qty{flex:0 0 auto;min-width:28px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}' +
+      '.mr-recv-desc{flex:1 1 auto;color:var(--text)}' +
+      '.mr-recv-row.done .mr-recv-desc{text-decoration:line-through;color:var(--muted)}' +
+      '.mr-sent-note{font-size:13px;color:var(--muted);margin-top:6px}' +
+      '.mr-rush{color:#f85149;font-size:12px;font-weight:700}' +
       '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
       '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
       '.mr-asm-row:active{background:var(--chip-bg)}' +
@@ -812,6 +909,235 @@
     const name = asmCurrent.name;
     closeAsm();
     toast(`Added ${items.length} item(s) from "${name}"`);
+    autosave();
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Drafts (running lists) + Sent history — durable, on-device (IndexedDB).
+  //   • One ACTIVE list auto-saves as you type; it survives closing the app.
+  //   • You can keep several NAMED lists and switch between them ("My lists").
+  //   • Submitting writes a SENT record (local history) you can reference and
+  //     check off as materials arrive (lead-time tracking, no double-ordering).
+  // ════════════════════════════════════════════════════════════════════════
+  const MR_DB = 'melton-materials';
+  let activeDraft = null;   // { id, name, created_at, updated_at, jobNo, items, generalPhotos, needed_by, urgency, note }
+  let _loadingDraft = false;
+  let _saveTimer = null;
+
+  function mrOpenDb() {
+    return new Promise((resolve, reject) => {
+      let req; try { req = indexedDB.open(MR_DB, 1); } catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('sent')) db.createObjectStore('sent', { keyPath: 'id' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  function dbPut(store, val) { return mrOpenDb().then(db => new Promise((res, rej) => { const t = db.transaction(store, 'readwrite'); t.objectStore(store).put(val); t.oncomplete = () => res(); t.onerror = () => rej(t.error); })); }
+  function dbDel(store, id) { return mrOpenDb().then(db => new Promise((res) => { const t = db.transaction(store, 'readwrite'); t.objectStore(store).delete(id); t.oncomplete = () => res(); t.onerror = () => res(); })); }
+  function dbAll(store) { return mrOpenDb().then(db => new Promise((res) => { const r = db.transaction(store, 'readonly').objectStore(store).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); })).catch(() => []); }
+  function mrId(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (m) return `${+m[2]}/${+m[3]}/${m[1].slice(2)}`;
+    const d = new Date(iso);
+    return isNaN(d) ? String(iso).slice(0, 10) : `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
+  }
+
+  function newDraft() {
+    const now = new Date().toISOString();
+    return { id: mrId('d'), name: '', created_at: now, updated_at: now, jobNo: shell.job.jobNo(), items: [], generalPhotos: [], needed_by: '', urgency: 'normal', note: '' };
+  }
+  function setActiveDraft(d) { activeDraft = d; try { localStorage.setItem('mr-active-draft', d.id); } catch (e) {} }
+
+  // DOM → draft items (keep only rows with content). Photos keep their File blobs.
+  function rowsToItems() {
+    return [...document.querySelectorAll('#mrItems .mr-item')].map(row => ({
+      description: row.querySelector('.mr-desc').value.trim(),
+      qty: Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1),
+      photos: (row._photos || []).map(p => ({ name: p.name, file: p.file }))
+    })).filter(it => it.description || it.photos.length);
+  }
+  function collectIntoActive() {
+    if (!activeDraft) return;
+    const nameEl = document.getElementById('mrListName');
+    activeDraft.name = nameEl ? nameEl.value.trim() : '';
+    activeDraft.needed_by = document.getElementById('mrNeededBy').value || '';
+    activeDraft.urgency = urgency;
+    activeDraft.note = document.getElementById('mrNote').value.trim();
+    activeDraft.generalPhotos = attachments.map(a => ({ name: a.name, file: a.file }));
+    activeDraft.items = rowsToItems();
+    activeDraft.updated_at = new Date().toISOString();
+    activeDraft.jobNo = shell.job.jobNo();
+  }
+  function autosave() {
+    if (_loadingDraft || !activeDraft) return;
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async () => {
+      collectIntoActive();
+      try { await dbPut('drafts', activeDraft); showSaved(); }
+      catch (err) { shell.log(`Draft save failed: ${err.message}`); }
+    }, 500);
+  }
+  function showSaved() {
+    const el = document.getElementById('mrSaved');
+    if (!el) return;
+    el.textContent = 'Saved ✓';
+    el.classList.add('show');
+    clearTimeout(showSaved._t);
+    showSaved._t = setTimeout(() => el.classList.remove('show'), 1200);
+  }
+
+  // Draft → form (rebuilds rows + photo thumbnails from the stored File blobs).
+  function populateDraft(d) {
+    _loadingDraft = true;
+    for (const a of attachments) if (a.url) URL.revokeObjectURL(a.url);
+    attachments = (d.generalPhotos || []).map(p => ({ name: p.name, file: p.file, url: URL.createObjectURL(p.file) }));
+    const wrap = document.getElementById('mrItems');
+    wrap.innerHTML = '';
+    const items = (d.items && d.items.length) ? d.items : [null];
+    for (const it of items) {
+      const row = addItemRow(it ? it.description : '', it ? it.qty : undefined);
+      if (it && it.photos && it.photos.length) {
+        row._photos = it.photos.map(p => ({ name: p.name, file: p.file, url: URL.createObjectURL(p.file) }));
+        renderItemThumbs(row);
+      }
+    }
+    document.getElementById('mrNeededBy').value = d.needed_by || '';
+    document.getElementById('mrNote').value = d.note || '';
+    urgency = d.urgency || 'normal';
+    document.querySelectorAll('#mrUrgency .chip').forEach(c => c.classList.toggle('active', c.dataset.urgency === urgency));
+    const nameEl = document.getElementById('mrListName'); if (nameEl) nameEl.value = d.name || '';
+    renderAttachments();
+    _loadingDraft = false;
+    updateSubmit();
+    if (shell.nav.current && shell.nav.current() === 'material-request') focusFirstQty();
+  }
+
+  async function initDrafts() {
+    let all = [];
+    try { all = await dbAll('drafts'); } catch (e) {}
+    let id = null; try { id = localStorage.getItem('mr-active-draft'); } catch (e) {}
+    let d = id ? all.find(x => x.id === id) : null;
+    if (!d) d = all.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))[0] || null;
+    if (!d) { d = newDraft(); try { await dbPut('drafts', d); } catch (e) {} }
+    setActiveDraft(d);
+    populateDraft(d);
+  }
+
+  // ── "My lists" sheet (auto-saved running lists + named lists) ─────────────
+  function openDrafts() { document.getElementById('mrDrafts').hidden = false; renderDrafts(); }
+  function closeDrafts() { document.getElementById('mrDrafts').hidden = true; }
+  async function saveActive() { collectIntoActive(); if (activeDraft) { try { await dbPut('drafts', activeDraft); } catch (e) {} } }
+  async function renderDrafts() {
+    await saveActive();
+    const body = document.getElementById('mrDraftsList');
+    const all = (await dbAll('drafts')).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    if (!all.length) { body.innerHTML = '<p class="hint" style="text-align:left">No saved lists yet.</p>'; return; }
+    body.innerHTML = all.map(d => {
+      const n = (d.items || []).length;
+      const nm = d.name || 'Untitled list';
+      const active = activeDraft && d.id === activeDraft.id;
+      return `<div class="mr-list-row${active ? ' active' : ''}" data-id="${esc(d.id)}">
+        <div class="mr-list-main"><div class="mr-list-name">${esc(nm)}${active ? ' • current' : ''}</div>
+        <div class="mr-list-meta">${n} item${n === 1 ? '' : 's'} · ${fmtDate(d.updated_at)}</div></div>
+        <button type="button" class="mr-list-del" data-del="${esc(d.id)}" aria-label="Delete list">🗑</button></div>`;
+    }).join('');
+  }
+  async function onDraftsClick(e) {
+    const del = e.target.closest('[data-del]');
+    if (del) { e.stopPropagation(); await deleteDraft(del.dataset.del); return; }
+    const row = e.target.closest('.mr-list-row');
+    if (row) await switchDraft(row.dataset.id);
+  }
+  async function switchDraft(id) {
+    if (activeDraft && id === activeDraft.id) { closeDrafts(); return; }
+    await saveActive();
+    const d = (await dbAll('drafts')).find(x => x.id === id);
+    if (!d) return;
+    setActiveDraft(d); populateDraft(d); closeDrafts();
+    toast(`Opened "${d.name || 'Untitled list'}"`);
+  }
+  async function deleteDraft(id) {
+    await dbDel('drafts', id);
+    if (activeDraft && id === activeDraft.id) {
+      const rest = (await dbAll('drafts')).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+      let d = rest[0];
+      if (!d) { d = newDraft(); try { await dbPut('drafts', d); } catch (e) {} }
+      setActiveDraft(d); populateDraft(d);
+    }
+    renderDrafts();
+  }
+  async function newList() {
+    await saveActive();
+    const d = newDraft();
+    try { await dbPut('drafts', d); } catch (e) {}
+    setActiveDraft(d); populateDraft(d); closeDrafts();
+    const nameEl = document.getElementById('mrListName'); if (nameEl) nameEl.focus();
+  }
+
+  // ── "Sent orders" sheet (reference + check off received) ──────────────────
+  function openSent() { document.getElementById('mrSentSheet').hidden = false; renderSent(); }
+  function closeSent() { document.getElementById('mrSentSheet').hidden = true; }
+  async function renderSent() {
+    const body = document.getElementById('mrSentList');
+    const all = (await dbAll('sent')).sort((a, b) => (b.sent_at || '').localeCompare(a.sent_at || ''));
+    if (!all.length) { body.innerHTML = '<p class="hint" style="text-align:left">Nothing sent yet. Submitted orders show up here so you can track what has arrived.</p>'; return; }
+    body.innerHTML = all.map(sentCardHtml).join('');
+  }
+  function sentCardHtml(s) {
+    const items = s.items || [];
+    const recv = items.filter(it => it.received).length;
+    const when = fmtDate(s.sent_at);
+    const title = s.name ? esc(s.name) : when;
+    const rush = s.urgency === 'rush' ? ' <span class="mr-rush">🔴 RUSH</span>' : '';
+    const needBy = s.needed_by ? ` · need ${fmtDate(s.needed_by)}` : '';
+    const allIn = items.length && recv === items.length;
+    const rows = items.map((it, i) =>
+      `<label class="mr-recv-row${it.received ? ' done' : ''}">
+        <input type="checkbox" data-sent="${esc(s.id)}" data-i="${i}"${it.received ? ' checked' : ''}>
+        <span class="mr-recv-qty">${it.qty}</span>
+        <span class="mr-recv-desc">${esc(it.description)}</span>
+      </label>`).join('');
+    return `<div class="mr-sent-card" data-id="${esc(s.id)}">
+      <button type="button" class="mr-sent-head" data-toggle="${esc(s.id)}">
+        <span class="mr-sent-title">${title}${rush}${allIn ? ' ✅' : ''}</span>
+        <span class="mr-sent-sub">${items.length} item${items.length === 1 ? '' : 's'} · ${recv}/${items.length} received${needBy}</span>
+      </button>
+      <div class="mr-sent-body" hidden>
+        ${s.name ? `<div class="mr-sent-when">Sent ${when}</div>` : ''}
+        ${rows}
+        ${s.note ? `<div class="mr-sent-note">📝 ${esc(s.note)}</div>` : ''}
+      </div></div>`;
+  }
+  function onSentClick(e) {
+    const tog = e.target.closest('[data-toggle]');
+    if (!tog) return;
+    const body = tog.parentElement.querySelector('.mr-sent-body');
+    if (body) body.hidden = !body.hidden;
+  }
+  async function onSentChange(e) {
+    const cb = e.target.closest('input[type=checkbox][data-sent]');
+    if (!cb) return;
+    const s = (await dbAll('sent')).find(x => x.id === cb.dataset.sent);
+    if (!s) return;
+    const it = s.items[+cb.dataset.i];
+    if (!it) return;
+    it.received = cb.checked;
+    it.received_at = cb.checked ? new Date().toISOString() : null;
+    try { await dbPut('sent', s); } catch (err) {}
+    const card = cb.closest('.mr-sent-card');
+    const row = cb.closest('.mr-recv-row'); if (row) row.classList.toggle('done', cb.checked);
+    const recv = s.items.filter(x => x.received).length;
+    const sub = card && card.querySelector('.mr-sent-sub');
+    if (sub) { const needBy = s.needed_by ? ` · need ${fmtDate(s.needed_by)}` : ''; sub.textContent = `${s.items.length} item${s.items.length === 1 ? '' : 's'} · ${recv}/${s.items.length} received${needBy}`; }
+    const titleEl = card && card.querySelector('.mr-sent-title');
+    if (titleEl) { const base = titleEl.textContent.replace(' ✅', ''); titleEl.textContent = (s.items.length && recv === s.items.length) ? base + ' ✅' : base; }
   }
 
   // ── Register ────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ Phases **2.0, 2.1, 2.2 (ingest), and 2.2b (catalog publish)** are built and in u
 - **Photo tag-and-route.** A request's attachment is named `MRQ<job>__…` and the Progress Photos mover *skips* `MRQ*` files, so the photo lands on its **order** (Material Requests attaches it) instead of disappearing into Progress Photos.
 - **SW caching hardened** (`cache:'reload'` on precache + navigation) to kill the "deployed but the phone still shows old" problem.
 - **Catalog went company-wide, not per-job.** The original plan had the office write a per-job `items.json`; instead the catalog + assemblies are a single **universal `/catalog/`** (master data every job reads), served network-first so a re-publish reaches phones with no SW bump. The field gained relevance-ranked item + assembly search and a run-length assembly picker. Known gap: source has no units yet.
+- **Running lists + on-device sent history (per field feedback).** The form keeps an **auto-saved active list** plus **named lists** (build a request over days before committing to send), and every Submit writes a local **Sent-orders history** with a **per-item "received" check-off** so foremen can track partial / long-lead deliveries and not re-order. Stored in IndexedDB (`melton-materials`: `drafts`, `sent`, incl. photo blobs). **On-device only today** — the cloud-backed version is deferred (§9).
 
 ---
 
@@ -219,6 +220,7 @@ Record dropped at `<jobFolder>/_inbox/matreq__<ISO8601compact>__<nonce>.json`:
 - Field **RFI request** → office RFI module (same pattern).
 - **Daily report / crew + hours**, **deficiency / punch log** capture modules.
 - Photos/requests **viewable on the phone** (read-back), not just write.
+- **Cloud-backed drafts & sent history.** Today the running lists (drafts) and the sent-order history + received check-offs live in **on-device IndexedDB** (`melton-materials` → `drafts`, `sent`) — per device, not synced. A lost/wiped phone loses **unsent drafts** and the local **"received" ticks**; *submitted* orders are safe (already in OneDrive → office). GitHub Pages is a **static host** and can't store data, so the durable target is **OneDrive** (the cloud the app already signs into). Plan: keep **local-first** for live editing + offline, and add **background sync** of `drafts`/`sent` JSON (+ photo blobs) to the foreman's OneDrive so the data survives device loss and follows that foreman across their own devices. Caveats: needs sign-in + connectivity to sync; the AppFolder is **per-user**, so this is per-foreman, *not* team-shared. A **team-shared** sent/received list (everyone on the job sees the same) needs a shared location (SharePoint / shared drive) or the office hub exposing it — ties into the broader-Graph-scope + MSAL-tenant work in §8.
 - **Push notifications** to the field (office → "your RFP shipped").
 - **Custom domain** (`field.melton.com`).
 - **SharePoint / company-wide** migration when this graduates from pilot.
