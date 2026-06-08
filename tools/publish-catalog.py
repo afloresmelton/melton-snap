@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """Publish the UNIVERSAL field catalog from the master tool exports.
 
-Reads the master `materials-catalog.json` (all items, all statuses) and the
-master `assemblies.json` (active + retired) and writes the slim, ACTIVE-ONLY
-files the field PWA consumes:
+FALLBACK path. The grouping tool's "Publish to field" button now exports the
+field files (items.json + assemblies.json) directly, so the normal flow doesn't
+need this. Use this only to regenerate the field files from the MASTER exports
+(materials-catalog.json + assemblies.json) -- it applies the same rules:
 
-  catalog/items.json       {description, unit, keywords}  (active, de-duped)
-  catalog/assemblies.json  active kits, with `group` baked from category name
+  catalog/items.json       {description, unit, keywords}
+                           active items PLUS any item an ACTIVE assembly references
+                           (so the field can order everything its bills call for),
+                           de-duped by description.
+  catalog/assemblies.json  active assemblies, group baked from category, NO flat[]
+                           (the field PWA flattens kit refs from lines[] at runtime).
 
-These are COMPANY-WIDE (not per-job): every job's field form reads the same one.
-
-Re-publish workflow: export `materials-catalog.json` + `assemblies.json` from
-the grouping tool, drop them into ./catalog-src/ (gitignored — local only),
-run this script, then commit + push the regenerated catalog/ files.
+COMPANY-WIDE (not per-job): every job's field form reads the same files.
 
 Usage:  py tools/publish-catalog.py [src_dir]
-  src_dir holds the two master exports. Defaults to ./catalog-src/.
+  src_dir holds materials-catalog.json + assemblies.json. Defaults to ./catalog-src/.
 """
-import json, os, sys
+import json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'catalog-src')
@@ -30,15 +31,57 @@ def load(name):
         return json.load(f)
 
 
-# ── items: master catalog → slim active, de-duped by description ──────────────
+# ── load catalog + assemblies; build kit index ───────────────────────────────
 cat = load('materials-catalog.json')
-seen, order = {}, []
+asm = load('assemblies.json')
+ASM_BY_ID = {a['id']: a for a in asm.get('assemblies', []) if a and a.get('id')}
+
+
+def flatten_asm(a, seen):
+    """Expand kit `ref` lines into leaf items (faithful to the tool's flattenAsm).
+    Used only to discover which items the active assemblies reference -- the field
+    PWA flattens at runtime, so we no longer ship flat[]."""
+    out = []
+    for l in a.get('lines', []):
+        ref = l.get('ref')
+        if ref:
+            sub = ASM_BY_ID.get(ref)
+            if (not sub) or (ref in seen):
+                continue
+            s2 = set(seen); s2.add(ref)
+            out.extend(flatten_asm(sub, s2))
+        else:
+            out.append(l)
+    return out
+
+
+def is_active_asm(a):
+    return bool(a and not a.get('retired') and (a.get('name') or '').strip())
+
+
+# itemIds referenced by ACTIVE assemblies -- kept in the field even if retired.
+used_iids = set()
+for a in asm.get('assemblies', []):
+    if not is_active_asm(a):
+        continue
+    for l in a.get('lines', []):
+        if not l.get('ref') and l.get('itemId'):
+            used_iids.add(l['itemId'])
+    if any(l.get('ref') for l in a.get('lines', [])):
+        for k in flatten_asm(a, set([a['id']])):
+            if k.get('itemId'):
+                used_iids.add(k['itemId'])
+
+# ── items: active OR used-by-an-active-assembly, de-duped by description ──────
+seen, order, kept_for_asm = {}, [], 0
 for it in cat.get('items', []):
     if not it:
         continue
     status = it.get('status', 'active')
     if status and status != 'active':
-        continue
+        if it.get('id') not in used_iids:
+            continue
+        kept_for_asm += 1
     desc = (it.get('description') or '').strip()
     if not desc:
         continue
@@ -66,13 +109,13 @@ with open(os.path.join(OUT_DIR, 'items.json'), 'w', encoding='utf-8') as f:
                'count': len(items), 'items': items},
               f, ensure_ascii=False, separators=(',', ':'))
 
-# ── assemblies: active only, bake group = category (already a friendly name) ─
-asm = load('assemblies.json')
+# ── assemblies: active only, bake group, NO flat[] (PWA flattens at runtime) ──
 active = []
 for a in asm.get('assemblies', []):
-    if not a or a.get('retired') or not (a.get('name') or '').strip():
+    if not is_active_asm(a):
         continue
     b = dict(a)
+    b.pop('flat', None)
     if not b.get('group'):
         b['group'] = b.get('category') or ''
     active.append(b)
@@ -87,8 +130,9 @@ with open(os.path.join(OUT_DIR, 'assemblies.json'), 'w', encoding='utf-8') as f:
               f, ensure_ascii=False, separators=(',', ':'))
 
 groups = sorted({a.get('group') for a in active if a.get('group')})
-print('items   active+deduped:', len(items), '(from', len(cat.get('items', [])), 'master)')
-print('assembl active:', len(active), '(from', len(asm.get('assemblies', [])), 'master)')
+print('items   active+deduped:', len(items), '(from', len(cat.get('items', [])), 'master;',
+      kept_for_asm, 'retired items kept because an active assembly uses them)')
+print('assembl active:', len(active), '(from', len(asm.get('assemblies', [])), 'master) -- no flat[], PWA flattens')
 print('groups:', len(groups))
 for g in groups:
     print('   -', g)

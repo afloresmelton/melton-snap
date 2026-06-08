@@ -25,6 +25,7 @@
   let autoInput = null;      // the .mr-desc input the autocomplete is attached to
   let assemblies = [];       // [{ id, name, group, lines[], flat?, _search }] kits
   let asmGroups = [];        // distinct top-level groups (for filter chips)
+  let asmById = new Map();   // id -> assembly, for resolving kit `ref` lines at runtime
   let asmGroup = '';         // active group filter ('' = all)
   let asmCurrent = null;     // assembly being configured
   let urgency = 'normal';    // 'normal' | 'rush'
@@ -422,15 +423,40 @@
         _n: String(a.name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() // normalized name, for ranking
       }));
       asmGroups = [...new Set(assemblies.map(a => a.group).filter(Boolean))];
+      asmById = new Map(assemblies.map(a => [a.id, a]));   // index for resolving kit refs
       const btn = document.getElementById('mrAddAsm');
       if (btn && assemblies.length) btn.hidden = false;
       shell.log(`✓ Assemblies: ${assemblies.length}`);
     } catch (err) { shell.log(`Assemblies load failed: ${err.message}`); }
   }
 
-  // Nested assemblies carry a pre-flattened `flat[]` (kit leaves with effective
-  // factors); plain ones use `lines[]`.
-  function asmLines(a) { return (Array.isArray(a.flat) && a.flat.length) ? a.flat : (a.lines || []); }
+  // Resolve kit `ref` lines at runtime by flattening from the authoritative `lines[]`
+  // (kit definitions ship as assemblies too). This makes `flat[]` in the file optional and
+  // removes the "stale / missing flat[]" failure mode — the leaves are always recomputed
+  // from source. Falls back to `flat[]` only if we somehow can't flatten (legacy safety).
+  function resolveAsm(id) { return asmById.get(id) || null; }
+  function flattenAsm(a, seen) {
+    const out = [];
+    for (const l of (a.lines || [])) {
+      if (l.ref) {
+        const sub = resolveAsm(l.ref);
+        if (!sub || seen.has(l.ref)) { out.push({ itemId: '', description: l.description + (sub ? ' (circular)' : ' (missing kit)'), base: l.base, fct1: l.fct1, fct2: l.fct2, matched: false }); continue; }
+        const s2 = new Set(seen); s2.add(l.ref);
+        for (const k of flattenAsm(sub, s2)) {
+          const len = (l.base === 'Len') || (k.base === 'Len');
+          out.push({ itemId: k.itemId, description: k.description, base: len ? 'Len' : 'Cnt',
+            fct1: Math.round(l.fct1 * k.fct1 * 1e4) / 1e4, fct2: (l.base === 'Len' ? l.fct2 : (k.base === 'Len' ? k.fct2 : 1)), matched: k.matched });
+        }
+      } else {
+        out.push({ itemId: l.itemId, description: l.description, base: l.base, fct1: l.fct1, fct2: l.fct2, matched: l.matched !== false });
+      }
+    }
+    return out;
+  }
+  function asmLines(a) {
+    if (a.lines && a.lines.length) { const f = flattenAsm(a, new Set([a.id])); if (f.length) return f; }
+    return (Array.isArray(a.flat) && a.flat.length) ? a.flat : (a.lines || []);   // legacy fallback
+  }
   function asmHasLen(a) { return asmLines(a).some(l => l.base === 'Len'); }
 
   // Estimating model: Len → qty = runFt × fct1/fct2; Cnt/Abs → fixed fct1.
