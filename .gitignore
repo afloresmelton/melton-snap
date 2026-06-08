@@ -1,0 +1,10 @@
+# Local publish source for the company-wide field catalog.
+# Re-export materials-catalog.json + assemblies.json from the grouping tool
+# into here, then run `py tools/publish-catalog.py` to regenerate catalog/.
+# These master exports are large and unused by the live site, so they stay local.
+catalog-src/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini

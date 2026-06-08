@@ -282,10 +282,13 @@
   function nonce() { return Math.random().toString(36).slice(2, 6); }
 
   // ── Office→field catalogs (graceful 404 → free text) ────────────────────
+  // These are COMPANY-WIDE master data published to /catalog/ (NOT per-job):
+  // every job's field form reads the same items + assemblies. Re-publishing the
+  // catalog (network-first in the SW) reaches phones on the next Materials open.
   function appBase() { return location.origin + location.pathname.replace(/[^/]*$/, ''); }
 
   async function loadCatalog() {
-    const url = new URL(`job-data/J${shell.job.jobNo()}/material-request/items.json`, appBase());
+    const url = new URL('catalog/items.json', appBase());
     try {
       const res = await fetch(url.href);
       if (!res.ok) { shell.log(`No items catalog (HTTP ${res.status}) — free text only`); return; }
@@ -381,7 +384,7 @@
 
   // ── Assemblies (kits): pick → expand to line items by run length ─────────
   async function loadAssemblies() {
-    const url = new URL(`job-data/J${shell.job.jobNo()}/material-request/assemblies.json`, appBase());
+    const url = new URL('catalog/assemblies.json', appBase());
     try {
       const res = await fetch(url.href);
       if (!res.ok) { shell.log(`No assemblies (HTTP ${res.status})`); return; }

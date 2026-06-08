@@ -2,7 +2,7 @@
 // Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
 // of one app.js. All are precached so the field hub launches offline.
 
-const CACHE_NAME = 'melton-snap-v24';
+const CACHE_NAME = 'melton-snap-v25';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -58,10 +58,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for dynamic config (per-job rooms.json + floorplans).
-  // These can change anytime a foreman publishes; cached versions would
-  // hide deletions and edits. Fall back to cache only if offline.
-  if (/\/job-data\//.test(url.pathname)) {
+  // Network-first for dynamic data:
+  //   /job-data/  — per-job rooms.json + floorplans (foreman publishes)
+  //   /catalog/   — company-wide items + assemblies (office re-publishes)
+  // Cached versions would hide edits/deletions, so always try the network and
+  // fall back to cache only when offline. This lets a catalog re-publish reach
+  // phones on the next Materials open WITHOUT a service-worker version bump.
+  if (/\/(job-data|catalog)\//.test(url.pathname)) {
     event.respondWith(
       fetch(req).then(res => {
         if (req.method === 'GET' && res.ok && url.origin === self.location.origin) {
