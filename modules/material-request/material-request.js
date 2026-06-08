@@ -23,6 +23,10 @@
   let catalogUnits = {};     // lower(description) -> unit, for unit auto-fill
   let catalog = [];          // [{ description, unit, search }] for keyword autocomplete
   let autoInput = null;      // the .mr-desc input the autocomplete is attached to
+  let assemblies = [];       // [{ id, name, group, lines[], flat?, _search }] kits
+  let asmGroups = [];        // distinct top-level groups (for filter chips)
+  let asmGroup = '';         // active group filter ('' = all)
+  let asmCurrent = null;     // assembly being configured
   let urgency = 'normal';    // 'normal' | 'rush'
 
   // ── Mount: render the form + wire it ────────────────────────────────────
@@ -36,7 +40,10 @@
       <section class="field">
         <label>Items</label>
         <div id="mrItems" class="mr-items"></div>
-        <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
+        <div class="mr-add-row">
+          <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
+          <button type="button" id="mrAddAsm" class="ghost-link mr-add" hidden>🧰 Add from assembly</button>
+        </div>
       </section>
 
       <section class="field mr-two-col">
@@ -70,7 +77,23 @@
       </button>
       <p id="mrStatus" class="hint"></p>
 
-      <div id="mrAuto" class="mr-auto" hidden></div>`;
+      <div id="mrAuto" class="mr-auto" hidden></div>
+
+      <div id="mrAsm" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <button type="button" id="mrAsmBack" class="ghost-link" hidden>←</button>
+            <strong id="mrAsmTitle">Add from assembly</strong>
+            <button type="button" id="mrAsmClose" class="ghost-link">✕</button>
+          </div>
+          <div id="mrAsmListView">
+            <input id="mrAsmSearch" type="search" placeholder="Search assemblies — e.g. 3/4 EMT, duplex…" autocomplete="off">
+            <div id="mrAsmGroups" class="chip-row"></div>
+            <div id="mrAsmResults" class="mr-asm-results"></div>
+          </div>
+          <div id="mrAsmConfig" hidden></div>
+        </div>
+      </div>`;
 
     injectAutoStyles();
     document.getElementById('mrAuto').addEventListener('click', onAutoPick);
@@ -85,10 +108,18 @@
       urgency = chip.dataset.urgency;
     });
 
+    document.getElementById('mrAddAsm').addEventListener('click', openAsm);
+    document.getElementById('mrAsmClose').addEventListener('click', closeAsm);
+    document.getElementById('mrAsmBack').addEventListener('click', showAsmList);
+    document.getElementById('mrAsmSearch').addEventListener('input', renderAsmResults);
+    document.getElementById('mrAsmResults').addEventListener('click', onAsmPick);
+    document.getElementById('mrAsmGroups').addEventListener('click', onAsmGroup);
+
     addItemRow();          // start with one empty row
     renderAttachments();
     updateSubmit();
     loadCatalog();         // item autocomplete (graceful if absent)
+    loadAssemblies();      // assembly kits (graceful if absent)
   }
 
   // ── Line items (DOM is the source of truth; state stays in the inputs) ───
@@ -325,8 +356,166 @@
       '.mr-auto-item{display:flex;justify-content:space-between;align-items:center;gap:12px;' +
       'padding:13px 14px;font-size:15px;color:var(--text);border-bottom:1px solid var(--border)}' +
       '.mr-auto-item:last-child{border-bottom:0}.mr-auto-item:active{background:var(--chip-bg)}' +
-      '.mr-auto-unit{flex:none;color:var(--muted);font-size:13px}';
+      '.mr-auto-unit{flex:none;color:var(--muted);font-size:13px}' +
+      '.mr-add-row{display:flex;gap:10px;flex-wrap:wrap}' +
+      '.mr-asm{position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center}' +
+      '.mr-asm[hidden]{display:none}' +
+      '.mr-asm-card{background:var(--bg);width:100%;max-width:600px;max-height:90vh;display:flex;flex-direction:column;border-radius:16px 16px 0 0;overflow:hidden;padding-bottom:var(--safe-bottom)}' +
+      '.mr-asm-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}' +
+      '.mr-asm-head strong{flex:1;text-align:center;font-size:1rem}' +
+      '#mrAsmListView{display:flex;flex-direction:column;min-height:0;flex:1;padding:12px 14px;gap:10px}' +
+      '#mrAsmSearch{width:100%;padding:13px 14px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
+      '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
+      '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
+      '.mr-asm-row:active{background:var(--chip-bg)}' +
+      '.mr-asm-name{font-size:15px;color:var(--text)}' +
+      '.mr-asm-meta{font-size:12px;color:var(--muted);margin-top:2px}' +
+      '#mrAsmConfig{padding:14px;overflow:auto}' +
+      '.mr-asm-cfgname{margin:0 0 10px;font-size:15px}' +
+      '.mr-asm-preview{margin:10px 0}' +
+      '.mr-asm-tbl{width:100%;border-collapse:collapse;font-size:13px}' +
+      '.mr-asm-tbl td{padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top}' +
+      '.mr-asm-tbl td.q{width:48px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}';
     document.head.appendChild(s);
+  }
+
+  // ── Assemblies (kits): pick → expand to line items by run length ─────────
+  async function loadAssemblies() {
+    const url = new URL(`job-data/J${shell.job.jobNo()}/material-request/assemblies.json`, appBase());
+    try {
+      const res = await fetch(url.href);
+      if (!res.ok) { shell.log(`No assemblies (HTTP ${res.status})`); return; }
+      const data = await res.json();
+      assemblies = (data.assemblies || []).filter(a => a && a.name).map(a => ({
+        ...a,
+        _search: [a.name, a.category, a.group, a.conduit_type, a.size, a.mounting].filter(Boolean).join(' ').toLowerCase()
+      }));
+      asmGroups = [...new Set(assemblies.map(a => a.group).filter(Boolean))];
+      const btn = document.getElementById('mrAddAsm');
+      if (btn && assemblies.length) btn.hidden = false;
+      shell.log(`✓ Assemblies: ${assemblies.length}`);
+    } catch (err) { shell.log(`Assemblies load failed: ${err.message}`); }
+  }
+
+  // Nested assemblies carry a pre-flattened `flat[]` (kit leaves with effective
+  // factors); plain ones use `lines[]`.
+  function asmLines(a) { return (Array.isArray(a.flat) && a.flat.length) ? a.flat : (a.lines || []); }
+  function asmHasLen(a) { return asmLines(a).some(l => l.base === 'Len'); }
+
+  // Estimating model: Len → qty = runFt × fct1/fct2; Cnt/Abs → fixed fct1.
+  function lineQty(line, runFt) {
+    const f1 = Number(line.fct1) || 0, f2 = Number(line.fct2) || 1;
+    if (line.base === 'Len') return Math.max(1, Math.round(runFt * f1 / (f2 || 1)));
+    return Math.max(1, Math.round(f1 || 1));
+  }
+  function expandAssembly(a, runFt) {
+    const byKey = new Map(); // sum same item across kit/lines
+    for (const ln of asmLines(a)) {
+      if (ln.ref) continue; // a kit ref — its leaves are already in flat[]
+      const qty = lineQty(ln, runFt);
+      const key = ln.itemId || ln.description;
+      const prev = byKey.get(key);
+      if (prev) prev.qty += qty;
+      else byKey.set(key, { description: ln.description, qty, unit: catalogUnits[String(ln.description).toLowerCase()] || '' });
+    }
+    return [...byKey.values()];
+  }
+
+  function openAsm() {
+    document.getElementById('mrAsm').hidden = false;
+    showAsmList();
+    renderAsmGroups();
+    renderAsmResults();
+    const s = document.getElementById('mrAsmSearch');
+    if (s) setTimeout(() => s.focus(), 50);
+  }
+  function closeAsm() { document.getElementById('mrAsm').hidden = true; }
+  function showAsmList() {
+    document.getElementById('mrAsmListView').hidden = false;
+    document.getElementById('mrAsmConfig').hidden = true;
+    document.getElementById('mrAsmBack').hidden = true;
+    document.getElementById('mrAsmTitle').textContent = 'Add from assembly';
+    asmCurrent = null;
+  }
+  function renderAsmGroups() {
+    const el = document.getElementById('mrAsmGroups');
+    el.innerHTML = `<button type="button" class="chip${asmGroup === '' ? ' active' : ''}" data-g="">All</button>` +
+      asmGroups.map(g => `<button type="button" class="chip${asmGroup === g ? ' active' : ''}" data-g="${esc(g)}">${esc(g)}</button>`).join('');
+  }
+  function onAsmGroup(e) {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    asmGroup = chip.dataset.g || '';
+    renderAsmGroups();
+    renderAsmResults();
+  }
+  function renderAsmResults() {
+    const q = (document.getElementById('mrAsmSearch').value || '').trim().toLowerCase();
+    const terms = q ? q.split(/\s+/) : [];
+    const out = [];
+    for (let i = 0; i < assemblies.length && out.length < 60; i++) {
+      const a = assemblies[i];
+      if (asmGroup && a.group !== asmGroup) continue;
+      let ok = true;
+      for (const t of terms) { if (a._search.indexOf(t) < 0) { ok = false; break; } }
+      if (ok) out.push(a);
+    }
+    const body = document.getElementById('mrAsmResults');
+    if (!out.length) { body.innerHTML = '<p class="hint" style="text-align:left">No matching assemblies.</p>'; return; }
+    body.innerHTML = out.map(a => {
+      const meta = [a.size, a.conduit_type, a.mounting].filter(Boolean).join(' · ') || a.category || '';
+      return `<div class="mr-asm-row" data-id="${esc(a.id)}"><div class="mr-asm-name">${esc(a.name)}</div>${meta ? `<div class="mr-asm-meta">${esc(meta)}</div>` : ''}</div>`;
+    }).join('');
+  }
+  function onAsmPick(e) {
+    const row = e.target.closest('.mr-asm-row');
+    if (!row) return;
+    asmCurrent = assemblies.find(x => x.id === row.dataset.id) || null;
+    if (asmCurrent) renderAsmConfig();
+  }
+  function renderAsmConfig() {
+    const a = asmCurrent;
+    document.getElementById('mrAsmListView').hidden = true;
+    document.getElementById('mrAsmConfig').hidden = false;
+    document.getElementById('mrAsmBack').hidden = false;
+    document.getElementById('mrAsmTitle').textContent = 'Configure';
+    const cfg = document.getElementById('mrAsmConfig');
+    cfg.innerHTML =
+      `<p class="mr-asm-cfgname"><strong>${esc(a.name)}</strong></p>` +
+      (asmHasLen(a) ? `<div class="field"><label for="mrAsmRun">Run length (ft)</label><input id="mrAsmRun" type="number" inputmode="numeric" min="1" value="100"></div>` : '') +
+      `<div id="mrAsmPreview" class="mr-asm-preview"></div>` +
+      `<button type="button" id="mrAsmAdd" class="shutter"><span class="shutter-label">Add to request</span></button>`;
+    const runEl = document.getElementById('mrAsmRun');
+    if (runEl) runEl.addEventListener('input', updateAsmPreview);
+    document.getElementById('mrAsmAdd').addEventListener('click', addAsm);
+    updateAsmPreview();
+  }
+  function currentRunFt() {
+    const el = document.getElementById('mrAsmRun');
+    return el ? Math.max(1, parseInt(el.value, 10) || 100) : 1;
+  }
+  function updateAsmPreview() {
+    if (!asmCurrent) return;
+    const items = expandAssembly(asmCurrent, currentRunFt());
+    const el = document.getElementById('mrAsmPreview');
+    const rows = items.slice(0, 40).map(it => `<tr><td class="q">${it.qty}</td><td>${esc(it.description)}</td></tr>`).join('');
+    el.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 6px">Adds ${items.length} item${items.length === 1 ? '' : 's'}:</p>` +
+      `<table class="mr-asm-tbl"><tbody>${rows}</tbody></table>` +
+      (items.length > 40 ? `<p class="hint" style="text-align:left">+${items.length - 40} more…</p>` : '');
+  }
+  function addAsm() {
+    if (!asmCurrent) return;
+    const items = expandAssembly(asmCurrent, currentRunFt());
+    if (!items.length) return;
+    // Drop a single empty starter row so the kit's items read clean.
+    const rows = [...document.querySelectorAll('#mrItems .mr-item')];
+    if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
+    for (const it of items) addItemRow(it.description, it.qty, it.unit);
+    updateSubmit();
+    const name = asmCurrent.name;
+    closeAsm();
+    const status = document.getElementById('mrStatus');
+    if (status) { status.style.color = ''; status.textContent = `Added ${items.length} item(s) from "${name}".`; }
   }
 
   // ── Register ────────────────────────────────────────────────────────────
