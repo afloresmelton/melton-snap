@@ -432,7 +432,7 @@
 
   function resetForm() {
     document.getElementById('mrItems').innerHTML = '';
-    photoTargetRow = null;
+    photoTarget = null;
     addItemRow();
     document.getElementById('mrNeededBy').value = '';
     document.getElementById('mrNote').value = '';
