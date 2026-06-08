@@ -124,7 +124,7 @@
       </div>`;
 
     injectAutoStyles();
-    document.getElementById('mrAddItem').addEventListener('click', () => { addItemRow(); document.querySelector('#mrItems .mr-item:last-child .mr-desc').focus(); });
+    document.getElementById('mrAddItem').addEventListener('click', () => { addItemRow(); document.querySelector('#mrItems .mr-item:last-child .mr-qty').focus(); });
     document.getElementById('mrAttach').addEventListener('click', onAttach);
     document.getElementById('mrSubmit').addEventListener('click', onSubmit);
     document.getElementById('mrUrgency').addEventListener('click', (e) => {
@@ -171,7 +171,7 @@
   }
 
   // ── Line items (DOM is the source of truth; state stays in the inputs) ───
-  function addItemRow(desc, qty, unit) {
+  function addItemRow(desc, qty, afterRow) {
     const wrap = document.getElementById('mrItems');
     const row = document.createElement('div');
     row.className = 'mr-item';
@@ -180,13 +180,14 @@
     // and remove. No unit field — quantity + description is all we track.
     row.innerHTML = `
       <div class="mr-item-main">
-        <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || 1}" aria-label="Quantity">
+        <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || ''}" placeholder="Qty" aria-label="Quantity">
         <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
         <button type="button" class="mr-item-photo" aria-label="Attach a photo to this item" title="Attach a photo to this item — pick from your photos or paste a screenshot">📷</button>
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>
       <div class="mr-item-thumbs" hidden></div>`;
-    wrap.appendChild(row);
+    if (afterRow && afterRow.parentNode === wrap) afterRow.after(row);
+    else wrap.appendChild(row);
 
     row.querySelector('.mr-del').addEventListener('click', () => {
       (row._photos || []).forEach(p => p.url && URL.revokeObjectURL(p.url));
@@ -194,8 +195,19 @@
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
       updateSubmit();
     });
-    row.querySelector('.mr-desc').addEventListener('input', updateSubmit);
+    const descEl = row.querySelector('.mr-desc');
+    descEl.addEventListener('input', updateSubmit);
+    // Enter in the description adds the next line and jumps to its (blank) qty —
+    // fast keyboard entry: qty → Tab → desc → Enter → next qty → …
+    descEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const next = addItemRow(undefined, undefined, row);
+      next.querySelector('.mr-qty').focus();
+      updateSubmit();
+    });
     row.querySelector('.mr-item-photo').addEventListener('click', () => openPhotoSheet({ kind: 'item', row }));
+    return row;
   }
 
   function hasItems() {
@@ -204,6 +216,13 @@
 
   function updateSubmit() {
     document.getElementById('mrSubmit').disabled = !hasItems();
+  }
+
+  // Put the cursor in the first line's (blank) quantity box whenever Materials
+  // is shown, so you can start typing a quantity immediately.
+  function focusFirstQty() {
+    const qty = document.querySelector('#mrItems .mr-qty');
+    if (qty) { try { qty.focus(); } catch (e) {} }
   }
 
   // ── Photo attachments (held locally until submit) ───────────────────────
@@ -801,7 +820,8 @@
     name: 'Materials',
     icon: '🧰',
     rootId: 'module-material-request',
-    mount
+    mount,
+    onShow: focusFirstQty
   });
 
 })(window.shell);
