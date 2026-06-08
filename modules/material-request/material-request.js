@@ -459,10 +459,26 @@
   }
   function asmHasLen(a) { return asmLines(a).some(l => l.base === 'Len'); }
 
+  // Conduit / rigid raceway (EMT, GRC, PVC, ENT, IMC/RMC, rigid) is sold in
+  // 10 ft sticks, so its length-based quantity is ordered in whole 10 ft sticks:
+  // 10 ft minimum, rounded UP to the next 10 ft (kept in feet — "length based").
+  // Gated on a 1:1 (per-foot) factor so fittings sharing the conduit name
+  // (couplings 1:10, straps 1:8) and per-foot wire/cable (THHN, MC — no raceway
+  // token) are NOT snapped to sticks.
+  const CONDUIT_RE = /\b(EMT|IMC|RMC|RGS|GRC|PVC|ENT|RIGID)\b/i;
+  function isConduitLine(line) {
+    const f1 = Number(line.fct1) || 0, f2 = Number(line.fct2) || 1;
+    return line.base === 'Len' && f2 !== 0 && f1 === f2 && CONDUIT_RE.test(String(line.description || ''));
+  }
+
   // Estimating model: Len → qty = runFt × fct1/fct2; Cnt/Abs → fixed fct1.
   function lineQty(line, runFt) {
     const f1 = Number(line.fct1) || 0, f2 = Number(line.fct2) || 1;
-    if (line.base === 'Len') return Math.max(1, Math.round(runFt * f1 / (f2 || 1)));
+    if (line.base === 'Len') {
+      const raw = runFt * f1 / (f2 || 1);
+      if (isConduitLine(line)) return Math.max(10, Math.ceil(raw / 10) * 10); // whole 10 ft sticks
+      return Math.max(1, Math.round(raw));
+    }
     return Math.max(1, Math.round(f1 || 1));
   }
   // Count-driven kits (no Len line — boxes, devices, supports) have no run
@@ -477,7 +493,7 @@
       const key = ln.itemId || ln.description;
       const prev = byKey.get(key);
       if (prev) prev.qty += qty;
-      else byKey.set(key, { description: ln.description, qty, unit: catalogUnits[String(ln.description).toLowerCase()] || '' });
+      else byKey.set(key, { description: ln.description, qty, unit: isConduitLine(ln) ? 'ft' : (catalogUnits[String(ln.description).toLowerCase()] || '') });
     }
     return [...byKey.values()];
   }
