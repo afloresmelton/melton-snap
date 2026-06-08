@@ -418,7 +418,8 @@
       const data = await res.json();
       assemblies = (data.assemblies || []).filter(a => a && a.name).map(a => ({
         ...a,
-        _search: [a.name, a.category, a.group, a.conduit_type, a.size, a.mounting].filter(Boolean).join(' ').toLowerCase()
+        _search: [a.name, a.category, a.group, a.conduit_type, a.size, a.mounting].filter(Boolean).join(' ').toLowerCase(),
+        _n: String(a.name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() // normalized name, for ranking
       }));
       asmGroups = [...new Set(assemblies.map(a => a.group).filter(Boolean))];
       const btn = document.getElementById('mrAddAsm');
@@ -482,14 +483,38 @@
   function renderAsmResults() {
     const q = (document.getElementById('mrAsmSearch').value || '').trim().toLowerCase();
     const terms = q ? q.split(/\s+/) : [];
-    const out = [];
-    for (let i = 0; i < assemblies.length && out.length < 60; i++) {
+    const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();
+    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
+    const nTerms = terms.length;
+    // filter on _search (name + category + group + facets) so a category/group
+    // word still finds a kit; then RANK by the assembly NAME — same relevance
+    // model as the item autocomplete — so the tightest name match floats to #1.
+    const matches = [];
+    for (let i = 0; i < assemblies.length; i++) {
       const a = assemblies[i];
       if (asmGroup && a.group !== asmGroup) continue;
       let ok = true;
-      for (const t of terms) { if (a._search.indexOf(t) < 0) { ok = false; break; } }
-      if (ok) out.push(a);
+      for (let t = 0; t < nTerms; t++) { if (a._search.indexOf(terms[t]) < 0) { ok = false; break; } }
+      if (ok) matches.push(a);
     }
+    if (qn) {
+      for (let i = 0; i < matches.length; i++) {
+        const n = matches[i]._n || '';
+        let sc = 0;
+        if (n === qn) sc += 1000;                     // exact name (punctuation-insensitive)
+        else if (n.indexOf(qn) === 0) sc += 300;      // name starts with the query
+        else if (n.indexOf(qn) >= 0) sc += 150;       // query appears contiguously in the name
+        let inName = 0;
+        for (let t = 0; t < termsN.length; t++) { if (n.indexOf(termsN[t]) >= 0) inName++; }
+        sc += inName * 30;                            // each query word found in the NAME
+        if (termsN.length && inName === termsN.length) sc += 60;
+        const nWords = n ? n.split(' ').length : 0;
+        sc -= Math.max(0, nWords - nTerms) * 12;      // looser match (extra words) ranks lower
+        matches[i]._sc = sc;
+      }
+      matches.sort((a, b) => b._sc - a._sc);
+    }
+    const out = matches.slice(0, 60);
     const body = document.getElementById('mrAsmResults');
     if (!out.length) { body.innerHTML = '<p class="hint" style="text-align:left">No matching assemblies.</p>'; return; }
     body.innerHTML = out.map(a => {
