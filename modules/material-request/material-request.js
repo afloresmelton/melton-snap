@@ -465,11 +465,15 @@
     if (line.base === 'Len') return Math.max(1, Math.round(runFt * f1 / (f2 || 1)));
     return Math.max(1, Math.round(f1 || 1));
   }
-  function expandAssembly(a, runFt) {
+  // Count-driven kits (no Len line — boxes, devices, supports) have no run
+  // length; the foreman instead gives a UNIT COUNT (how many boxes) and every
+  // per-unit line scales by it. Run kits ignore `count` (run length drives them).
+  function expandAssembly(a, runFt, count) {
+    const mult = asmHasLen(a) ? 1 : Math.max(1, count || 1);
     const byKey = new Map(); // sum same item across kit/lines
     for (const ln of asmLines(a)) {
       if (ln.ref) continue; // a kit ref — its leaves are already in flat[]
-      const qty = lineQty(ln, runFt);
+      const qty = lineQty(ln, runFt) * mult;
       const key = ln.itemId || ln.description;
       const prev = byKey.get(key);
       if (prev) prev.qty += qty;
@@ -563,11 +567,15 @@
     const cfg = document.getElementById('mrAsmConfig');
     cfg.innerHTML =
       `<p class="mr-asm-cfgname"><strong>${esc(a.name)}</strong></p>` +
-      (asmHasLen(a) ? `<div class="field"><label for="mrAsmRun">Run length (ft)</label><input id="mrAsmRun" type="number" inputmode="numeric" min="1" value="100"></div>` : '') +
+      (asmHasLen(a)
+        ? `<div class="field"><label for="mrAsmRun">Run length (ft)</label><input id="mrAsmRun" type="number" inputmode="numeric" min="1" value="100"></div>`
+        : `<div class="field"><label for="mrAsmCount">How many? <span class="label-aside">— units of this assembly</span></label><input id="mrAsmCount" type="number" inputmode="numeric" min="1" value="1"></div>`) +
       `<div id="mrAsmPreview" class="mr-asm-preview"></div>` +
       `<button type="button" id="mrAsmAdd" class="shutter"><span class="shutter-label">Add to request</span></button>`;
     const runEl = document.getElementById('mrAsmRun');
     if (runEl) runEl.addEventListener('input', updateAsmPreview);
+    const cntEl = document.getElementById('mrAsmCount');
+    if (cntEl) cntEl.addEventListener('input', updateAsmPreview);
     document.getElementById('mrAsmAdd').addEventListener('click', addAsm);
     updateAsmPreview();
   }
@@ -575,9 +583,13 @@
     const el = document.getElementById('mrAsmRun');
     return el ? Math.max(1, parseInt(el.value, 10) || 100) : 1;
   }
+  function currentCount() {
+    const el = document.getElementById('mrAsmCount');
+    return el ? Math.max(1, parseInt(el.value, 10) || 1) : 1;
+  }
   function updateAsmPreview() {
     if (!asmCurrent) return;
-    const items = expandAssembly(asmCurrent, currentRunFt());
+    const items = expandAssembly(asmCurrent, currentRunFt(), currentCount());
     const el = document.getElementById('mrAsmPreview');
     const rows = items.slice(0, 40).map(it => `<tr><td class="q">${it.qty}</td><td>${esc(it.description)}</td></tr>`).join('');
     el.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 6px">Adds ${items.length} item${items.length === 1 ? '' : 's'}:</p>` +
@@ -586,7 +598,7 @@
   }
   function addAsm() {
     if (!asmCurrent) return;
-    const items = expandAssembly(asmCurrent, currentRunFt());
+    const items = expandAssembly(asmCurrent, currentRunFt(), currentCount());
     if (!items.length) return;
     // Drop a single empty starter row so the kit's items read clean.
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
