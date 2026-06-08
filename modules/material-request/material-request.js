@@ -28,6 +28,8 @@
   let asmGroup = '';         // active group filter ('' = all)
   let asmCurrent = null;     // assembly being configured
   let urgency = 'normal';    // 'normal' | 'rush'
+  let photoTargetRow = null; // item row awaiting the file-picker result
+  let itemFileInput = null;  // shared hidden <input type=file> for per-item photos
 
   // ── Mount: render the form + wire it ────────────────────────────────────
   function mount(root) {
@@ -131,6 +133,17 @@
     document.getElementById('mrCatSearch').addEventListener('input', renderCatResults);
     document.getElementById('mrCatResults').addEventListener('click', onCatPick);
 
+    // Per-item photos: one shared hidden file input (iOS shows Library / Camera /
+    // Files; desktop a file dialog) + a paste listener for screenshots.
+    itemFileInput = document.createElement('input');
+    itemFileInput.type = 'file';
+    itemFileInput.accept = 'image/*';
+    itemFileInput.multiple = true;
+    itemFileInput.style.display = 'none';
+    itemFileInput.addEventListener('change', onItemFilePicked);
+    root.appendChild(itemFileInput);
+    root.addEventListener('paste', onPasteImage);
+
     addItemRow();          // start with one empty row
     renderAttachments();
     updateSubmit();
@@ -143,38 +156,39 @@
     const wrap = document.getElementById('mrItems');
     const row = document.createElement('div');
     row.className = 'mr-item';
-    // Quantity first, then Item Description. Catalog search lives in the
-    // "Add from catalog" picker now, so the description field is plain free text.
+    row._photos = [];          // [{ file, name, url }] photos linked to THIS line
+    // Quantity first, then Item Description, then 📷 (link a photo to this line)
+    // and remove. No unit field — quantity + description is all we track.
     row.innerHTML = `
       <div class="mr-item-main">
         <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || 1}" aria-label="Quantity">
         <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
-      </div>
-      <div class="mr-item-meta">
-        <input class="mr-unit" type="text" value="${esc(unit || 'ea')}" placeholder="ea" aria-label="Unit">
+        <button type="button" class="mr-item-photo" aria-label="Attach a photo to this item" title="Attach a photo to this item — pick from your photos or paste a screenshot">📷</button>
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
-      </div>`;
+      </div>
+      <div class="mr-item-thumbs" hidden></div>`;
     wrap.appendChild(row);
 
     row.querySelector('.mr-del').addEventListener('click', () => {
+      (row._photos || []).forEach(p => p.url && URL.revokeObjectURL(p.url));
       row.remove();
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
       updateSubmit();
     });
     row.querySelector('.mr-desc').addEventListener('input', updateSubmit);
+    row.querySelector('.mr-item-photo').addEventListener('click', () => {
+      photoTargetRow = row;
+      itemFileInput.value = '';
+      itemFileInput.click();   // iOS offers Library/Camera/Files; desktop a file dialog
+    });
   }
 
-  function readItems() {
-    return [...document.querySelectorAll('#mrItems .mr-item')].map(row => ({
-      description: row.querySelector('.mr-desc').value.trim(),
-      qty: Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1),
-      unit: row.querySelector('.mr-unit').value.trim() || 'ea',
-      note: ''
-    })).filter(it => it.description);
+  function hasItems() {
+    return [...document.querySelectorAll('#mrItems .mr-desc')].some(d => d.value.trim());
   }
 
   function updateSubmit() {
-    document.getElementById('mrSubmit').disabled = readItems().length === 0;
+    document.getElementById('mrSubmit').disabled = !hasItems();
   }
 
   // ── Photo attachments (held locally until submit) ───────────────────────
@@ -207,17 +221,103 @@
     }));
   }
 
+  // ── Per-item photos (link a picture to one line; library or pasted) ───────
+  // The general "Attach photo" above is request-level; these attach to a single
+  // line. Renamed with the MRQ tag (same as general photos) so the office routes
+  // them to the order, and each item also carries its own photos[] in the record.
+  function renamePhoto(file) {
+    const d = new Date();
+    const ts = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join('');
+    let ext = (file.type && file.type.split('/')[1]) || (file.name || '').split('.').pop() || 'jpg';
+    ext = String(ext).toLowerCase().replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '') || 'jpg';
+    return new File([file], `MRQ${shell.job.jobNo()}__${ts}__${nonce()}.${ext}`, { type: file.type || 'image/jpeg' });
+  }
+  function attachItemPhoto(row, file) {
+    if (!row || !file) return;
+    const named = renamePhoto(file);
+    (row._photos = row._photos || []).push({ file: named, name: named.name, url: URL.createObjectURL(named) });
+    renderItemThumbs(row);
+    toast('Photo linked');
+  }
+  function renderItemThumbs(row) {
+    const wrap = row.querySelector('.mr-item-thumbs');
+    const photos = row._photos || [];
+    wrap.hidden = photos.length === 0;
+    const btn = row.querySelector('.mr-item-photo');
+    if (btn) btn.classList.toggle('has', photos.length > 0);
+    wrap.innerHTML = photos.map((p, i) =>
+      `<div class="mr-photo"><img src="${p.url}" alt=""><button type="button" class="mr-photo-del" data-i="${i}" aria-label="Remove photo">✕</button></div>`
+    ).join('');
+    wrap.querySelectorAll('.mr-photo-del').forEach(b => b.addEventListener('click', () => {
+      const i = +b.dataset.i, p = row._photos[i];
+      if (p && p.url) URL.revokeObjectURL(p.url);
+      row._photos.splice(i, 1);
+      renderItemThumbs(row);
+    }));
+  }
+  function onItemFilePicked() {
+    const files = [...(itemFileInput.files || [])];
+    const row = photoTargetRow;
+    if (row && row.isConnected) for (const f of files) attachItemPhoto(row, f);
+    itemFileInput.value = '';
+    photoTargetRow = null;
+  }
+  // Paste an image (screenshot) → link to the focused line; if no line is
+  // focused, fall back to a general request photo. Text pastes are untouched.
+  function onPasteImage(e) {
+    const data = e.clipboardData;
+    if (!data) return;
+    let img = null;
+    for (const it of (data.items || [])) { if (it.type && it.type.indexOf('image/') === 0) { img = it.getAsFile(); break; } }
+    if (!img) return;
+    e.preventDefault();
+    const ae = document.activeElement;
+    const row = (ae && ae.closest) ? ae.closest('.mr-item') : null;
+    if (row) {
+      attachItemPhoto(row, img);
+    } else {
+      const named = renamePhoto(img);
+      attachments.push({ file: named, name: named.name, url: URL.createObjectURL(named) });
+      renderAttachments();
+      toast('Photo added');
+    }
+  }
+
+  // ── Toast: transient confirmation that shows ABOVE an open picker sheet ────
+  function toast(msg) {
+    let t = document.getElementById('mrToast');
+    if (!t) { t = document.createElement('div'); t.id = 'mrToast'; t.className = 'mr-toast'; document.body.appendChild(t); }
+    t.textContent = '✓ ' + msg;
+    t.classList.remove('show'); void t.offsetWidth; t.classList.add('show'); // restart the animation
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 1700);
+  }
+
   // ── Submit → build §7 record, enqueue photos + JSON through shell.sync ───
   async function onSubmit() {
-    const items = readItems();
+    // Build items straight from the rows so each line keeps its own photos[].
+    const items = [];
+    const itemPhotoFiles = [];
+    for (const row of document.querySelectorAll('#mrItems .mr-item')) {
+      const description = row.querySelector('.mr-desc').value.trim();
+      if (!description) continue;
+      const qty = Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1);
+      const photos = row._photos || [];
+      items.push({ description, qty, unit: '', note: '', photos: photos.map(p => p.name) });
+      itemPhotoFiles.push(...photos);
+    }
     if (!items.length) return;
 
-    const photos = attachments.map(a => a.name);
-    const record = buildRecord(items, photos);
+    // photos[] = general (request-level) + every line's linked photos.
+    const allPhotos = [...attachments.map(a => a.name), ...items.flatMap(it => it.photos)];
+    const record = buildRecord(items, allPhotos);
 
-    // Attachments first, so the JSON's photos[] reference files already queued.
+    // Photos first, so the JSON's photos[] reference files already queued.
     for (const a of attachments) {
-      shell.sync.enqueue({ file: a.file, name: a.name, contentType: 'image/jpeg', thumbUrl: a.url, label: 'Materials photo' });
+      shell.sync.enqueue({ file: a.file, name: a.name, contentType: a.file.type || 'image/jpeg', thumbUrl: a.url, label: 'Materials photo' });
+    }
+    for (const p of itemPhotoFiles) {
+      shell.sync.enqueue({ file: p.file, name: p.name, contentType: p.file.type || 'image/jpeg', thumbUrl: p.url, label: 'Item photo' });
     }
     // Ownership of the object URLs passes to the outbox — don't revoke here.
     attachments = [];
@@ -229,7 +329,7 @@
       label: `Request · ${items.length} item${items.length === 1 ? '' : 's'}`
     });
 
-    shell.log(`Materials request queued: ${fname} (${items.length} items, ${photos.length} photo(s))`);
+    shell.log(`Materials request queued: ${fname} (${items.length} items, ${allPhotos.length} photo(s))`);
     resetForm();
 
     const status = document.getElementById('mrStatus');
@@ -261,6 +361,7 @@
 
   function resetForm() {
     document.getElementById('mrItems').innerHTML = '';
+    photoTargetRow = null;
     addItemRow();
     document.getElementById('mrNeededBy').value = '';
     document.getElementById('mrNote').value = '';
@@ -386,10 +487,9 @@
     // sheet open so the foreman can add several items in a row.
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
-    addItemRow(hit.description, 1, hit.unit || 'ea');
+    addItemRow(hit.description, 1);
     updateSubmit();
-    const status = document.getElementById('mrStatus');
-    if (status) { status.style.color = ''; status.textContent = `Added "${hit.description}".`; }
+    toast(`Added "${hit.description}"`);
   }
   function injectAutoStyles() {
     if (document.getElementById('mrAutoStyle')) return;
@@ -415,7 +515,12 @@
       '.mr-asm-preview{margin:10px 0}' +
       '.mr-asm-tbl{width:100%;border-collapse:collapse;font-size:13px}' +
       '.mr-asm-tbl td{padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:top}' +
-      '.mr-asm-tbl td.q{width:48px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}';
+      '.mr-asm-tbl td.q{width:48px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}' +
+      '.mr-toast{position:fixed;left:50%;top:14px;transform:translate(-50%,-12px);z-index:3000;' +
+      'background:#238636;color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;font-weight:600;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;' +
+      'max-width:84vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.mr-toast.show{opacity:1;transform:translate(-50%,0)}';
     document.head.appendChild(s);
   }
 
@@ -628,12 +733,11 @@
     // Drop a single empty starter row so the kit's items read clean.
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
-    for (const it of items) addItemRow(it.description, it.qty, it.unit);
+    for (const it of items) addItemRow(it.description, it.qty);
     updateSubmit();
     const name = asmCurrent.name;
     closeAsm();
-    const status = document.getElementById('mrStatus');
-    if (status) { status.style.color = ''; status.textContent = `Added ${items.length} item(s) from "${name}".`; }
+    toast(`Added ${items.length} item(s) from "${name}"`);
   }
 
   // ── Register ────────────────────────────────────────────────────────────

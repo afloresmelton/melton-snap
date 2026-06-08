@@ -170,10 +170,7 @@ main {
 .mr-item-main { display: flex; gap: 8px; align-items: center; }
 .mr-item-main .mr-qty { width: 64px; flex: 0 0 auto; text-align: center; padding: 12px 8px; }
 .mr-item-main .mr-desc { flex: 1 1 auto; min-width: 0; }
-.mr-item-meta { display: flex; gap: 8px; align-items: center; }
-.mr-item-meta .mr-unit { width: 88px; flex: 0 0 auto; padding: 12px 10px; }
-.mr-item-meta .mr-del {
-  margin-left: auto;
+.mr-item-photo, .mr-item-main .mr-del {
   width: 42px; height: 42px;
   flex: 0 0 auto;
   border: 1px solid var(--border);
@@ -183,7 +180,12 @@ main {
   font-size: 1rem;
   cursor: pointer;
 }
-.mr-item-meta .mr-del:active { background: var(--bg); color: var(--err); }
+.mr-item-photo:active, .mr-item-main .mr-del:active { background: var(--bg); }
+.mr-item-main .mr-del:active { color: var(--err); }
+.mr-item-photo.has { border-color: var(--accent, #3fb950); color: var(--text); }
+.mr-item-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.mr-item-thumbs[hidden] { display: none; }
+.mr-item-thumbs .mr-photo { width: 52px; height: 52px; }
 
 .mr-add { align-self: flex-start; }
 
