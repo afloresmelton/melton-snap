@@ -6,23 +6,24 @@ This plan covers the evolution from "one app" to "field hub with modules." The v
 
 ---
 
-## 0. Status — built & live (updated 2026-06-05)
+## 0. Status — built & live (updated 2026-06-07)
 
-Phases **2.0, 2.1, and 2.2 (ingest) are built and in use** on the pilot job (964 / BP EV HUB). The field PWA is deployed on GitHub Pages (`afloresmelton.github.io/melton-snap/`, SW cache `v22`); the office side runs in the desktop hub.
+Phases **2.0, 2.1, 2.2 (ingest), and 2.2b (catalog publish)** are built and in use on the pilot job (964 / BP EV HUB). The field PWA is deployed on GitHub Pages (`afloresmelton.github.io/melton-snap/`, SW cache `v27`); the office side runs in the desktop hub. **Only Phase 2.3 (real on-phone E2E) remains** before the pilot is end-to-end on a device.
 
 | Phase | State | As built |
 |---|---|---|
 | **2.0 — Snap → field shell** | ✅ done, live | `window.shell` = `core/identity/job/sync/capture/nav/boot` + `modules/photos` + `modules/material-request`. Plus a **frozen v1 fallback** at `/v1/` (the pre-refactor app, in case the hub breaks on a phone). |
 | **2.1 — Field Materials Request** | ✅ done, live | Mobile form (repeatable line items, photo attach, urgency, needed-by, note), **one-press Submit** (queues + uploads in a single tap), `matreq__*.json` bridge. Location field dropped per field feedback. |
 | **2.2 — Office ingest** | ✅ done | Built as a **sibling hub module** `material-request-inbox` (not a button inside MO). Routes by jobNo → **deferred order creation**: requests land in a status log; the PM clicks **Create New Order** to mint a draft MO and is dropped into it. |
-| **2.2b — Catalog publish** | ⏳ next | Office writes the real `items.json` (today it's hand-seeded). |
-| **2.3 — Real-job E2E** | ⏳ in progress | First on-phone round-trips underway; iterating on device. |
+| **2.2b — Catalog publish** | ✅ done, live | **Company-wide** catalog at `/catalog/` (NOT per-job): `items.json` (30,729 active items + keywords) + `assemblies.json` (112 active kits). Field form gained **keyword autocomplete** (synonyms: "one hole"→`1-H STRAP`), an **assembly picker** with run-length expansion, and **relevance-ranked** search in both the item box and the assembly box. Publish via `tools/publish-catalog.py` from the grouping tool's master exports (`catalog-src/`, gitignored). |
+| **2.3 — Real-job E2E** | ⏳ in progress | First on-phone round-trips underway; iterating on device. **The remaining gate** — surfaces the MSAL-tenant/Graph-scope work (§8). |
 
 **Notable departures from the original plan** (detail in §8):
 - **MSAL switched popup → redirect auth.** iOS standalone PWAs block popups — this *was* the §2.3 "remaining unknown." Paired with a **durable IndexedDB outbox** so the full-page sign-in redirect doesn't lose queued captures, and an **auto-resume** after sign-in.
 - **Office ingest is a sibling module with deferred, status-driven order creation** (status: No order created / Draft / RFP Sent / Deleted), not an auto-create button in MO. The PM stays in control of when a request becomes an order.
 - **Photo tag-and-route.** A request's attachment is named `MRQ<job>__…` and the Progress Photos mover *skips* `MRQ*` files, so the photo lands on its **order** (Material Requests attaches it) instead of disappearing into Progress Photos.
 - **SW caching hardened** (`cache:'reload'` on precache + navigation) to kill the "deployed but the phone still shows old" problem.
+- **Catalog went company-wide, not per-job.** The original plan had the office write a per-job `items.json`; instead the catalog + assemblies are a single **universal `/catalog/`** (master data every job reads), served network-first so a re-publish reaches phones with no SW bump. The field gained relevance-ranked item + assembly search and a run-length assembly picker. Known gap: source has no units yet.
 
 ---
 
