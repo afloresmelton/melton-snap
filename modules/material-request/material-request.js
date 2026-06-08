@@ -28,8 +28,8 @@
   let asmGroup = '';         // active group filter ('' = all)
   let asmCurrent = null;     // assembly being configured
   let urgency = 'normal';    // 'normal' | 'rush'
-  let photoTargetRow = null; // item row awaiting the file-picker result
-  let itemFileInput = null;  // shared hidden <input type=file> for per-item photos
+  let photoTarget = null;    // { kind:'general' } | { kind:'item', row } — where the next photo lands
+  let photoFileInput = null; // shared hidden <input type=file> behind the photo chooser
 
   // ── Mount: render the form + wire it ────────────────────────────────────
   function mount(root) {
@@ -93,6 +93,20 @@
         </div>
       </div>
 
+      <div id="mrPhotoSheet" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <strong id="mrPhotoTitle">Add a photo</strong>
+            <button type="button" id="mrPhotoClose" class="ghost-link">✕</button>
+          </div>
+          <div class="mr-photo-opts">
+            <button type="button" id="mrPhotoLib" class="mr-photo-opt">🖼️ Choose or take a photo</button>
+            <button type="button" id="mrPhotoPaste" class="mr-photo-opt">📋 Paste a screenshot</button>
+            <p id="mrPhotoHint" class="hint" hidden></p>
+          </div>
+        </div>
+      </div>
+
       <div id="mrAsm" class="mr-asm" hidden>
         <div class="mr-asm-card">
           <div class="mr-asm-head">
@@ -133,16 +147,21 @@
     document.getElementById('mrCatSearch').addEventListener('input', renderCatResults);
     document.getElementById('mrCatResults').addEventListener('click', onCatPick);
 
-    // Per-item photos: one shared hidden file input (iOS shows Library / Camera /
-    // Files; desktop a file dialog) + a paste listener for screenshots.
-    itemFileInput = document.createElement('input');
-    itemFileInput.type = 'file';
-    itemFileInput.accept = 'image/*';
-    itemFileInput.multiple = true;
-    itemFileInput.style.display = 'none';
-    itemFileInput.addEventListener('change', onItemFilePicked);
-    root.appendChild(itemFileInput);
+    // Photo chooser, shared by the bottom "Attach photo" and each line's 📷:
+    // one hidden file input (iOS shows Camera/Library/Files; desktop a file
+    // dialog) + an explicit Paste button, plus a Ctrl+V listener for power users.
+    photoFileInput = document.createElement('input');
+    photoFileInput.type = 'file';
+    photoFileInput.accept = 'image/*';
+    photoFileInput.multiple = true;
+    photoFileInput.style.display = 'none';
+    photoFileInput.addEventListener('change', onPhotoFilePicked);
+    root.appendChild(photoFileInput);
     root.addEventListener('paste', onPasteImage);
+
+    document.getElementById('mrPhotoClose').addEventListener('click', closePhotoSheet);
+    document.getElementById('mrPhotoLib').addEventListener('click', () => { closePhotoSheet(); photoFileInput.value = ''; photoFileInput.click(); });
+    document.getElementById('mrPhotoPaste').addEventListener('click', pasteFromClipboard);
 
     addItemRow();          // start with one empty row
     renderAttachments();
@@ -176,11 +195,7 @@
       updateSubmit();
     });
     row.querySelector('.mr-desc').addEventListener('input', updateSubmit);
-    row.querySelector('.mr-item-photo').addEventListener('click', () => {
-      photoTargetRow = row;
-      itemFileInput.value = '';
-      itemFileInput.click();   // iOS offers Library/Camera/Files; desktop a file dialog
-    });
+    row.querySelector('.mr-item-photo').addEventListener('click', () => openPhotoSheet({ kind: 'item', row }));
   }
 
   function hasItems() {
@@ -192,18 +207,8 @@
   }
 
   // ── Photo attachments (held locally until submit) ───────────────────────
-  async function onAttach() {
-    try {
-      const jpeg = await shell.capture.pick(); // sync-triggers the input within the gesture
-      if (!jpeg) return;
-      const named = new File([jpeg], buildPhotoName(), { type: 'image/jpeg' });
-      attachments.push({ file: named, name: named.name, url: URL.createObjectURL(named) });
-      renderAttachments();
-    } catch (err) {
-      shell.log(`✗ Attach failed: ${err.message}`);
-      alert(`Couldn't attach photo: ${err.message}`);
-    }
-  }
+  // Both the bottom "Attach photo" and each line's 📷 open the same chooser.
+  function onAttach() { openPhotoSheet({ kind: 'general' }); }
 
   function renderAttachments() {
     const wrap = document.getElementById('mrPhotos');
@@ -255,15 +260,61 @@
       renderItemThumbs(row);
     }));
   }
-  function onItemFilePicked() {
-    const files = [...(itemFileInput.files || [])];
-    const row = photoTargetRow;
-    if (row && row.isConnected) for (const f of files) attachItemPhoto(row, f);
-    itemFileInput.value = '';
-    photoTargetRow = null;
+  // ── Photo chooser (shared by the general add + each line's 📷) ─────────────
+  function openPhotoSheet(target) {
+    photoTarget = target;
+    document.getElementById('mrPhotoTitle').textContent = target.kind === 'item' ? 'Photo for this item' : 'Add a photo';
+    const hint = document.getElementById('mrPhotoHint'); if (hint) hint.hidden = true;
+    document.getElementById('mrPhotoSheet').hidden = false;
   }
-  // Paste an image (screenshot) → link to the focused line; if no line is
-  // focused, fall back to a general request photo. Text pastes are untouched.
+  function closePhotoSheet() { document.getElementById('mrPhotoSheet').hidden = true; }
+
+  // Normalize to a clean JPEG when possible (HEIC from the library, a PNG
+  // screenshot); fall back to the original file if the browser can't decode it.
+  async function normalizeImage(file) {
+    try { return await shell.capture.reencodeAsJpeg(file); }
+    catch (err) { shell.log(`Photo re-encode skipped: ${err.message}`); return file; }
+  }
+  function addPhotoToTarget(file, target) {
+    const tgt = target || photoTarget;
+    if (tgt && tgt.kind === 'item' && tgt.row && tgt.row.isConnected) {
+      attachItemPhoto(tgt.row, file);
+    } else {
+      const named = renamePhoto(file);
+      attachments.push({ file: named, name: named.name, url: URL.createObjectURL(named) });
+      renderAttachments();
+      toast('Photo added');
+    }
+  }
+  async function onPhotoFilePicked() {
+    const files = [...(photoFileInput.files || [])];
+    photoFileInput.value = '';
+    for (const f of files) addPhotoToTarget(await normalizeImage(f));
+  }
+  // Explicit "Paste a screenshot" — reads the clipboard on a tap (unlike Ctrl+V,
+  // which needs a focused field). Graceful when the browser blocks/empties it.
+  async function pasteFromClipboard() {
+    const hint = document.getElementById('mrPhotoHint');
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) throw new Error('clipboard read unsupported');
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const type = it.types.find(t => t.indexOf('image/') === 0);
+        if (type) {
+          const blob = await it.getType(type);
+          addPhotoToTarget(await normalizeImage(new File([blob], 'pasted.png', { type })));
+          closePhotoSheet();
+          return;
+        }
+      }
+      if (hint) { hint.hidden = false; hint.textContent = 'No image in the clipboard — copy a screenshot first, then tap Paste.'; }
+    } catch (err) {
+      if (hint) { hint.hidden = false; hint.textContent = 'Couldn’t read the clipboard here. On a computer, click a line and press Ctrl+V instead.'; }
+      shell.log(`Clipboard paste failed: ${err.message}`);
+    }
+  }
+  // Ctrl/Cmd+V on desktop: into the open chooser's target if the sheet is up,
+  // else the focused line, else a general photo. Text pastes are untouched.
   function onPasteImage(e) {
     const data = e.clipboardData;
     if (!data) return;
@@ -271,16 +322,17 @@
     for (const it of (data.items || [])) { if (it.type && it.type.indexOf('image/') === 0) { img = it.getAsFile(); break; } }
     if (!img) return;
     e.preventDefault();
-    const ae = document.activeElement;
-    const row = (ae && ae.closest) ? ae.closest('.mr-item') : null;
-    if (row) {
-      attachItemPhoto(row, img);
+    const sheetOpen = !document.getElementById('mrPhotoSheet').hidden;
+    let target;
+    if (sheetOpen && photoTarget) {
+      target = photoTarget;
     } else {
-      const named = renamePhoto(img);
-      attachments.push({ file: named, name: named.name, url: URL.createObjectURL(named) });
-      renderAttachments();
-      toast('Photo added');
+      const ae = document.activeElement;
+      const row = (ae && ae.closest) ? ae.closest('.mr-item') : null;
+      target = row ? { kind: 'item', row } : { kind: 'general' };
     }
+    normalizeImage(img).then(f => addPhotoToTarget(f, target));
+    if (sheetOpen) closePhotoSheet();
   }
 
   // ── Toast: transient confirmation that shows ABOVE an open picker sheet ────
@@ -505,6 +557,9 @@
       '#mrAsmListView{display:flex;flex-direction:column;min-height:0;flex:1;padding:12px 14px;gap:10px}' +
       '#mrAsmSearch,#mrCatSearch{width:100%;padding:13px 14px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
       '.mr-cat-body{display:flex;flex-direction:column;min-height:0;flex:1;padding:12px 14px;gap:10px}' +
+      '.mr-photo-opts{display:flex;flex-direction:column;gap:10px;padding:14px}' +
+      '.mr-photo-opt{width:100%;text-align:left;padding:16px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;color:var(--text);cursor:pointer}' +
+      '.mr-photo-opt:active{background:var(--chip-bg)}' +
       '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
       '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
       '.mr-asm-row:active{background:var(--chip-bg)}' +
