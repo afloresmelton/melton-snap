@@ -124,6 +124,16 @@
         </div>
       </div>
 
+      <div id="mrConfirm" class="mr-confirm" hidden>
+        <div class="mr-confirm-box">
+          <p id="mrConfirmMsg" class="mr-confirm-msg"></p>
+          <div class="mr-confirm-btns">
+            <button type="button" id="mrConfirmCancel" class="mr-confirm-cancel">Cancel</button>
+            <button type="button" id="mrConfirmOk" class="mr-confirm-ok">Delete</button>
+          </div>
+        </div>
+      </div>
+
       <div id="mrPhotoSheet" class="mr-asm" hidden>
         <div class="mr-asm-card">
           <div class="mr-asm-head">
@@ -204,6 +214,9 @@
     document.getElementById('mrSentClose').addEventListener('click', closeSent);
     document.getElementById('mrSentList').addEventListener('click', onSentClick);
     document.getElementById('mrSentList').addEventListener('change', onSentChange);
+    document.getElementById('mrConfirmCancel').addEventListener('click', closeConfirm);
+    document.getElementById('mrConfirmOk').addEventListener('click', () => { const fn = _confirmYes; closeConfirm(); if (fn) fn(); });
+    document.getElementById('mrConfirm').addEventListener('click', (e) => { if (e.target.id === 'mrConfirm') closeConfirm(); });
 
     // Auto-save the active running list as the foreman builds it
     document.getElementById('mrItems').addEventListener('input', () => { updateSubmit(); autosave(); });
@@ -438,6 +451,19 @@
     const allPhotos = [...attachments.map(a => a.name), ...items.flatMap(it => it.photos)];
     const record = buildRecord(items, allPhotos);
 
+    // Order name "<job> MR - <delivery MM-DD-YY> - <NN>" (e.g. "964 MR - 06-10-26 - 01")
+    // — recognizable months later. NN = running count of sent requests for this
+    // job; date = requested delivery (needed-by), else the send date. Stamped on
+    // BOTH the uploaded record (so the office shows the SAME name) and the local
+    // Sent-history entry below.
+    const sentAt = new Date().toISOString();
+    const sJob = shell.job.jobNo();
+    let seq = 1;
+    try { seq = (await dbAll('sent')).filter(s => String(s.jobNo) === String(sJob)).length + 1; } catch (e) {}
+    const orderName = `${sJob} MR - ${fmtMMDDYY(record.needed_by || sentAt)} - ${String(seq).padStart(2, '0')}`;
+    record.order_name = orderName;
+    record.order_no = seq;
+
     // Photos first, so the JSON's photos[] reference files already queued.
     for (const a of attachments) {
       shell.sync.enqueue({ file: a.file, name: a.name, contentType: a.file.type || 'image/jpeg', thumbUrl: a.url, label: 'Materials photo' });
@@ -460,8 +486,8 @@
     // Local Sent history — reference later + check off as materials arrive.
     try {
       await dbPut('sent', {
-        id: mrId('s'), sent_at: new Date().toISOString(), jobNo: shell.job.jobNo(),
-        requester: shell.job.current().me, name: activeDraft ? displayName(activeDraft) : '',
+        id: mrId('s'), sent_at: sentAt, jobNo: sJob, order_no: seq,
+        requester: shell.job.current().me, name: orderName,
         needed_by: record.needed_by || '', urgency, note: record.note || '',
         generalPhotos: generalPhotoMeta, items: sentItems
       });
@@ -676,6 +702,15 @@
       '.mr-recv-row.done .mr-recv-desc{text-decoration:line-through;color:var(--muted)}' +
       '.mr-sent-note{font-size:13px;color:var(--muted);margin-top:6px}' +
       '.mr-rush{color:#f85149;font-size:12px;font-weight:700}' +
+      '.mr-confirm{position:fixed;inset:0;z-index:3200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px}' +
+      '.mr-confirm[hidden]{display:none}' +
+      '.mr-confirm-box{background:var(--bg);border:1px solid var(--border);border-radius:16px;max-width:340px;width:100%;padding:18px}' +
+      '.mr-confirm-msg{margin:0 0 16px;font-size:15px;color:var(--text);text-align:center;line-height:1.4}' +
+      '.mr-confirm-btns{display:flex;gap:10px}' +
+      '.mr-confirm-cancel,.mr-confirm-ok{flex:1 1 0;padding:13px;font-size:15px;font-weight:600;border-radius:10px;cursor:pointer;border:1px solid var(--border)}' +
+      '.mr-confirm-cancel{background:var(--panel);color:var(--text)}' +
+      '.mr-confirm-cancel:active{background:var(--chip-bg)}' +
+      '.mr-confirm-ok{background:#da3633;color:#fff;border-color:#da3633}' +
       '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
       '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
       '.mr-asm-row:active{background:var(--chip-bg)}' +
@@ -923,6 +958,7 @@
   let activeDraft = null;   // { id, name, created_at, updated_at, jobNo, items, generalPhotos, needed_by, urgency, note }
   let _loadingDraft = false;
   let _saveTimer = null;
+  let _confirmYes = null;    // pending confirm-dialog callback
 
   function mrOpenDb() {
     return new Promise((resolve, reject) => {
@@ -947,6 +983,14 @@
     if (m) return `${+m[2]}/${+m[3]}/${m[1].slice(2)}`;
     const d = new Date(iso);
     return isNaN(d) ? String(iso).slice(0, 10) : `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
+  }
+  // Zero-padded MM-DD-YY for the sent-order name (e.g. "06-10-26").
+  function fmtMMDDYY(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+    if (m) return `${m[2]}-${m[3]}-${m[1].slice(2)}`;
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getFullYear()).slice(2)}`;
   }
 
   function newDraft() {
@@ -1057,6 +1101,14 @@
   // ── "My lists" sheet (auto-saved running lists + named lists) ─────────────
   function openDrafts() { document.getElementById('mrDrafts').hidden = false; renderDrafts(); }
   function closeDrafts() { document.getElementById('mrDrafts').hidden = true; }
+  // Lightweight in-app confirm (native confirm() is unreliable in iOS PWAs).
+  function askConfirm(message, onYes, okLabel) {
+    _confirmYes = onYes;
+    document.getElementById('mrConfirmMsg').textContent = message;
+    document.getElementById('mrConfirmOk').textContent = okLabel || 'Delete';
+    document.getElementById('mrConfirm').hidden = false;
+  }
+  function closeConfirm() { document.getElementById('mrConfirm').hidden = true; _confirmYes = null; }
   async function saveActive() { collectIntoActive(); if (activeDraft) { try { await dbPut('drafts', activeDraft); } catch (e) {} } }
   async function renderDrafts() {
     await saveActive();
@@ -1075,7 +1127,13 @@
   }
   async function onDraftsClick(e) {
     const del = e.target.closest('[data-del]');
-    if (del) { e.stopPropagation(); await deleteDraft(del.dataset.del); return; }
+    if (del) {
+      e.stopPropagation();
+      const id = del.dataset.del;
+      const nm = (del.closest('.mr-list-row').querySelector('.mr-list-name').textContent || 'this list').replace(' • current', '');
+      askConfirm(`Delete "${nm}"? This can't be undone.`, () => deleteDraft(id));
+      return;
+    }
     const row = e.target.closest('.mr-list-row');
     if (row) await switchDraft(row.dataset.id);
   }
