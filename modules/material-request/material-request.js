@@ -21,8 +21,7 @@
   // ── Module state (what can't live in the DOM) ───────────────────────────
   let attachments = [];      // [{ file, name, url }] nameplate photos, pre-submit
   let catalogUnits = {};     // lower(description) -> unit, for unit auto-fill
-  let catalog = [];          // [{ description, unit, search }] for keyword autocomplete
-  let autoInput = null;      // the .mr-desc input the autocomplete is attached to
+  let catalog = [];          // [{ description, unit, search, dn }] for the catalog picker
   let assemblies = [];       // [{ id, name, group, lines[], flat?, _search }] kits
   let asmGroups = [];        // distinct top-level groups (for filter chips)
   let asmById = new Map();   // id -> assembly, for resolving kit `ref` lines at runtime
@@ -43,6 +42,7 @@
         <div id="mrItems" class="mr-items"></div>
         <div class="mr-add-row">
           <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
+          <button type="button" id="mrAddCat" class="ghost-link mr-add" hidden>📚 Add from catalog</button>
           <button type="button" id="mrAddAsm" class="ghost-link mr-add" hidden>🧰 Add from assembly</button>
         </div>
       </section>
@@ -78,7 +78,18 @@
       </button>
       <p id="mrStatus" class="hint"></p>
 
-      <div id="mrAuto" class="mr-auto" hidden></div>
+      <div id="mrCat" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <strong>Add from catalog</strong>
+            <button type="button" id="mrCatClose" class="ghost-link">✕</button>
+          </div>
+          <div class="mr-cat-body">
+            <input id="mrCatSearch" type="search" placeholder="Search items — e.g. 3/4 EMT, oct box, lug…" autocomplete="off">
+            <div id="mrCatResults" class="mr-asm-results"></div>
+          </div>
+        </div>
+      </div>
 
       <div id="mrAsm" class="mr-asm" hidden>
         <div class="mr-asm-card">
@@ -97,7 +108,6 @@
       </div>`;
 
     injectAutoStyles();
-    document.getElementById('mrAuto').addEventListener('click', onAutoPick);
     document.getElementById('mrAddItem').addEventListener('click', () => { addItemRow(); document.querySelector('#mrItems .mr-item:last-child .mr-desc').focus(); });
     document.getElementById('mrAttach').addEventListener('click', onAttach);
     document.getElementById('mrSubmit').addEventListener('click', onSubmit);
@@ -116,6 +126,11 @@
     document.getElementById('mrAsmResults').addEventListener('click', onAsmPick);
     document.getElementById('mrAsmGroups').addEventListener('click', onAsmGroup);
 
+    document.getElementById('mrAddCat').addEventListener('click', openCat);
+    document.getElementById('mrCatClose').addEventListener('click', closeCat);
+    document.getElementById('mrCatSearch').addEventListener('input', renderCatResults);
+    document.getElementById('mrCatResults').addEventListener('click', onCatPick);
+
     addItemRow();          // start with one empty row
     renderAttachments();
     updateSubmit();
@@ -128,10 +143,14 @@
     const wrap = document.getElementById('mrItems');
     const row = document.createElement('div');
     row.className = 'mr-item';
+    // Quantity first, then Item Description. Catalog search lives in the
+    // "Add from catalog" picker now, so the description field is plain free text.
     row.innerHTML = `
-      <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
-      <div class="mr-item-meta">
+      <div class="mr-item-main">
         <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || 1}" aria-label="Quantity">
+        <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
+      </div>
+      <div class="mr-item-meta">
         <input class="mr-unit" type="text" value="${esc(unit || 'ea')}" placeholder="ea" aria-label="Unit">
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>`;
@@ -142,14 +161,7 @@
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
       updateSubmit();
     });
-    const descEl = row.querySelector('.mr-desc');
-    descEl.addEventListener('input', (e) => {
-      autofillUnit(row, e.target.value);
-      updateSubmit();
-      openAuto(e.target);
-    });
-    descEl.addEventListener('focus', (e) => openAuto(e.target));
-    descEl.addEventListener('blur', () => setTimeout(closeAuto, 180)); // delay so a tap on a result lands
+    row.querySelector('.mr-desc').addEventListener('input', updateSubmit);
   }
 
   function readItems() {
@@ -163,13 +175,6 @@
 
   function updateSubmit() {
     document.getElementById('mrSubmit').disabled = readItems().length === 0;
-  }
-
-  function autofillUnit(row, desc) {
-    const u = catalogUnits[desc.trim().toLowerCase()];
-    if (!u) return;
-    const unitEl = row.querySelector('.mr-unit');
-    if (!unitEl.value || unitEl.value === 'ea') unitEl.value = u; // don't clobber a real edit
   }
 
   // ── Photo attachments (held locally until submit) ───────────────────────
@@ -307,25 +312,23 @@
         const dn = desc.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
         return { description: desc, unit: it.unit || '', search, dn };
       });
+      const btn = document.getElementById('mrAddCat');
+      if (btn && catalog.length) btn.hidden = false;   // reveal the catalog picker
       shell.log(`✓ Items catalog: ${catalog.length} entries`);
     } catch (err) {
       shell.log(`Items catalog load failed: ${err.message}`);
     }
   }
 
-  // ── Custom autocomplete (searches description + keywords; iOS-safe) ───────
-  function openAuto(input) {
-    autoInput = input;
-    const auto = document.getElementById('mrAuto');
-    if (!auto) return;
-    const q = input.value.trim().toLowerCase();
-    if (!q || !catalog.length) { auto.hidden = true; return; }
+  // ── Catalog picker (searchable; add tapped items as line rows) ────────────
+  // Ranked search over the catalog: AND-of-terms across the search index
+  // (description + office keyword synonyms, so "one hole strap" finds the
+  // abbreviated "1-H STRAP"), then scored so the tightest description match is #1.
+  function rankCatalog(q) {
     const terms = q.split(/\s+/);
     const nTerms = terms.length;
     const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();              // normalized query
     const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
-    // 1) collect EVERY substring-AND match (description + office keywords) so a
-    //    keyword synonym ("one hole" -> "1-H STRAP") still surfaces.
     const matches = [];
     for (let i = 0; i < catalog.length; i++) {
       const s = catalog[i].search;
@@ -333,8 +336,6 @@
       for (let t = 0; t < nTerms; t++) { if (s.indexOf(terms[t]) < 0) { ok = false; break; } }
       if (ok) matches.push(catalog[i]);
     }
-    // 2) ...then RANK by relevance so the tightest match is #1 (not file order):
-    //    description hits beat keyword-only hits; exact/prefix and brevity win.
     for (let i = 0; i < matches.length; i++) {
       const dn = matches[i].dn || '';
       let sc = 0;
@@ -350,44 +351,51 @@
       matches[i]._sc = sc;
     }
     matches.sort((a, b) => b._sc - a._sc);
-    const hits = matches.slice(0, 12);
-    // hide if the only match is exactly what's already typed
-    if (!hits.length || (hits.length === 1 && hits[0].description.toLowerCase() === q)) { auto.hidden = true; return; }
-    auto._hits = hits;
-    auto.innerHTML = hits.map((it, idx) =>
-      `<div class="mr-auto-item" data-i="${idx}">${esc(it.description)}${it.unit ? `<span class="mr-auto-unit">${esc(it.unit)}</span>` : ''}</div>`
-    ).join('');
-    const r = input.getBoundingClientRect();
-    auto.style.left = r.left + 'px';
-    auto.style.top = r.bottom + 'px';
-    auto.style.width = r.width + 'px';
-    auto.hidden = false;
+    return matches;
   }
-  function closeAuto() { const a = document.getElementById('mrAuto'); if (a) a.hidden = true; }
-  function onAutoPick(e) {
-    const item = e.target.closest('.mr-auto-item');
-    if (!item || !autoInput) return;
-    const auto = document.getElementById('mrAuto');
-    const hit = auto._hits && auto._hits[+item.dataset.i];
+
+  function openCat() {
+    document.getElementById('mrCat').hidden = false;
+    renderCatResults();
+    const s = document.getElementById('mrCatSearch');
+    if (s) setTimeout(() => s.focus(), 50);
+  }
+  function closeCat() { document.getElementById('mrCat').hidden = true; }
+  function renderCatResults() {
+    const body = document.getElementById('mrCatResults');
+    const q = (document.getElementById('mrCatSearch').value || '').trim().toLowerCase();
+    if (!q) {
+      body._hits = [];
+      body.innerHTML = `<p class="hint" style="text-align:left">Type to search ${catalog.length.toLocaleString()} catalog items.</p>`;
+      return;
+    }
+    const hits = rankCatalog(q).slice(0, 50);
+    body._hits = hits;
+    if (!hits.length) { body.innerHTML = '<p class="hint" style="text-align:left">No matching items.</p>'; return; }
+    body.innerHTML = hits.map((it, i) =>
+      `<div class="mr-asm-row" data-i="${i}"><div class="mr-asm-name">${esc(it.description)}</div>${it.unit ? `<div class="mr-asm-meta">${esc(it.unit)}</div>` : ''}</div>`
+    ).join('');
+  }
+  function onCatPick(e) {
+    const row = e.target.closest('.mr-asm-row');
+    if (!row) return;
+    const body = document.getElementById('mrCatResults');
+    const hit = body._hits && body._hits[+row.dataset.i];
     if (!hit) return;
-    autoInput.value = hit.description;
-    const row = autoInput.closest('.mr-item');
-    if (row) autofillUnit(row, hit.description);
+    // Drop a single empty starter row so the first pick reads clean; keep the
+    // sheet open so the foreman can add several items in a row.
+    const rows = [...document.querySelectorAll('#mrItems .mr-item')];
+    if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
+    addItemRow(hit.description, 1, hit.unit || 'ea');
     updateSubmit();
-    auto.hidden = true;
+    const status = document.getElementById('mrStatus');
+    if (status) { status.style.color = ''; status.textContent = `Added "${hit.description}".`; }
   }
   function injectAutoStyles() {
     if (document.getElementById('mrAutoStyle')) return;
     const s = document.createElement('style');
     s.id = 'mrAutoStyle';
     s.textContent =
-      '.mr-auto{position:fixed;z-index:2000;max-height:46vh;overflow:auto;margin-top:3px;' +
-      'background:var(--panel);border:1px solid var(--border);border-radius:12px;' +
-      'box-shadow:0 12px 32px rgba(0,0,0,.55);-webkit-overflow-scrolling:touch}' +
-      '.mr-auto-item{display:flex;justify-content:space-between;align-items:center;gap:12px;' +
-      'padding:13px 14px;font-size:15px;color:var(--text);border-bottom:1px solid var(--border)}' +
-      '.mr-auto-item:last-child{border-bottom:0}.mr-auto-item:active{background:var(--chip-bg)}' +
-      '.mr-auto-unit{flex:none;color:var(--muted);font-size:13px}' +
       '.mr-add-row{display:flex;gap:10px;flex-wrap:wrap}' +
       '.mr-asm{position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center}' +
       '.mr-asm[hidden]{display:none}' +
@@ -395,7 +403,8 @@
       '.mr-asm-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border)}' +
       '.mr-asm-head strong{flex:1;text-align:center;font-size:1rem}' +
       '#mrAsmListView{display:flex;flex-direction:column;min-height:0;flex:1;padding:12px 14px;gap:10px}' +
-      '#mrAsmSearch{width:100%;padding:13px 14px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
+      '#mrAsmSearch,#mrCatSearch{width:100%;padding:13px 14px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
+      '.mr-cat-body{display:flex;flex-direction:column;min-height:0;flex:1;padding:12px 14px;gap:10px}' +
       '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
       '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
       '.mr-asm-row:active{background:var(--chip-bg)}' +

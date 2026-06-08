@@ -167,8 +167,10 @@ main {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+.mr-item-main { display: flex; gap: 8px; align-items: center; }
+.mr-item-main .mr-qty { width: 64px; flex: 0 0 auto; text-align: center; padding: 12px 8px; }
+.mr-item-main .mr-desc { flex: 1 1 auto; min-width: 0; }
 .mr-item-meta { display: flex; gap: 8px; align-items: center; }
-.mr-item-meta .mr-qty { width: 72px; flex: 0 0 auto; text-align: center; padding: 12px 8px; }
 .mr-item-meta .mr-unit { width: 88px; flex: 0 0 auto; padding: 12px 10px; }
 .mr-item-meta .mr-del {
   margin-left: auto;
