@@ -39,14 +39,18 @@
         <p class="hint module-sub">Tell the office what you need on this job. It queues with your photos and uploads together.</p>
       </section>
 
-      <section class="field mr-toolbar">
-        <button type="button" id="mrLists" class="mr-tool-btn">📋 Lists</button>
-        <input id="mrListName" class="mr-listname" type="text" placeholder="Untitled list" autocomplete="off" aria-label="List name">
-        <button type="button" id="mrSent" class="mr-tool-btn">🕓 Sent</button>
+      <section class="field mr-actions">
+        <button type="button" id="mrLists" class="mr-tool-btn">📋 Saved Lists</button>
+        <button type="button" id="mrSent" class="mr-tool-btn">🕓 Previous Orders</button>
       </section>
 
       <section class="field">
-        <label>Items <span id="mrSaved" class="mr-saved"></span></label>
+        <label for="mrListName">List name <span id="mrSaved" class="mr-saved"></span></label>
+        <input id="mrListName" class="mr-listname" type="text" placeholder="Untitled list" autocomplete="off" aria-label="List name">
+      </section>
+
+      <section class="field">
+        <label>Items</label>
         <div id="mrItems" class="mr-items"></div>
         <div class="mr-add-row">
           <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
@@ -102,7 +106,7 @@
       <div id="mrDrafts" class="mr-asm" hidden>
         <div class="mr-asm-card">
           <div class="mr-asm-head">
-            <strong>My lists</strong>
+            <strong>Saved Lists</strong>
             <button type="button" id="mrDraftsClose" class="ghost-link">✕</button>
           </div>
           <div class="mr-cat-body">
@@ -115,7 +119,7 @@
       <div id="mrSentSheet" class="mr-asm" hidden>
         <div class="mr-asm-card">
           <div class="mr-asm-head">
-            <strong>Sent orders</strong>
+            <strong>Previous Orders</strong>
             <button type="button" id="mrSentClose" class="ghost-link">✕</button>
           </div>
           <div class="mr-cat-body">
@@ -217,6 +221,10 @@
     document.getElementById('mrConfirmCancel').addEventListener('click', closeConfirm);
     document.getElementById('mrConfirmOk').addEventListener('click', () => { const fn = _confirmYes; closeConfirm(); if (fn) fn(); });
     document.getElementById('mrConfirm').addEventListener('click', (e) => { if (e.target.id === 'mrConfirm') closeConfirm(); });
+
+    // Tap the dark backdrop (anywhere outside the card) to dismiss any bottom
+    // sheet — My lists, Sent orders, catalog, assembly, photo chooser.
+    root.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('mr-asm')) e.target.hidden = true; });
 
     // Auto-save the active running list as the foreman builds it
     document.getElementById('mrItems').addEventListener('input', () => { updateSubmit(); autosave(); });
@@ -677,10 +685,10 @@
       '.mr-photo-opts{display:flex;flex-direction:column;gap:10px;padding:14px}' +
       '.mr-photo-opt{width:100%;text-align:left;padding:16px;font-size:16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;color:var(--text);cursor:pointer}' +
       '.mr-photo-opt:active{background:var(--chip-bg)}' +
-      '.mr-toolbar{display:flex;align-items:center;gap:8px}' +
-      '.mr-tool-btn{flex:0 0 auto;padding:9px 12px;font-size:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer}' +
+      '.mr-actions{display:flex;flex-direction:row;gap:10px}' +
+      '.mr-tool-btn{flex:1 1 0;text-align:center;padding:11px 10px;font-size:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer}' +
       '.mr-tool-btn:active{background:var(--chip-bg)}' +
-      '.mr-listname{flex:1 1 auto;min-width:0;padding:9px 12px;font-size:15px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
+      '.mr-listname{width:100%;box-sizing:border-box;padding:10px 12px;font-size:15px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text)}' +
       '.mr-saved{font-size:12px;color:var(--muted);opacity:0;transition:opacity .2s}' +
       '.mr-saved.show{opacity:1}' +
       '.mr-list-row{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--border)}' +
