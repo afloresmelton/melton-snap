@@ -640,11 +640,15 @@
         // search index = description + office-supplied keywords (synonyms), so a
         // foreman typing "one hole strap" finds the abbreviated "1-H STRAP".
         const search = (desc + ' ' + (it.keywords || '')).toLowerCase();
+        // searchN = punctuation-normalized haystack used to MATCH (gate), so a
+        // typed inch mark (straight " OR an iOS smart-quote ") and "1 in" / "1"
+        // all collapse to the same tokens and still find the item.
+        const searchN = search.replace(/[^a-z0-9]+/g, ' ').trim();
         // dn = punctuation-normalized description used to RANK matches
         // ('3/4" EMT CONDUIT' -> '3 4 emt conduit') so an exact/tight hit wins
         // even though the search index also matches keywords.
         const dn = desc.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-        return { description: desc, unit: it.unit || '', search, dn };
+        return { description: desc, unit: it.unit || '', search, searchN, dn };
       });
       const btn = document.getElementById('mrAddCat');
       if (btn && catalog.length) btn.hidden = false;   // reveal the catalog picker
@@ -660,14 +664,15 @@
   // abbreviated "1-H STRAP"), then scored so the tightest description match is #1.
   function rankCatalog(q) {
     const terms = q.split(/\s+/);
-    const nTerms = terms.length;
-    const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();              // normalized query
-    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
+    const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();              // normalized query (for ranking)
+    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);  // gate on these
+    const nTerms = termsN.length;
+    if (!nTerms) return [];                                       // query was only punctuation
     const matches = [];
     for (let i = 0; i < catalog.length; i++) {
-      const s = catalog[i].search;
+      const s = catalog[i].searchN;                              // punctuation-normalized haystack
       let ok = true;
-      for (let t = 0; t < nTerms; t++) { if (s.indexOf(terms[t]) < 0) { ok = false; break; } }
+      for (let t = 0; t < nTerms; t++) { if (s.indexOf(termsN[t]) < 0) { ok = false; break; } }
       if (ok) matches.push(catalog[i]);
     }
     for (let i = 0; i < matches.length; i++) {
@@ -805,11 +810,15 @@
       const res = await fetch(url.href);
       if (!res.ok) { shell.log(`No assemblies (HTTP ${res.status})`); return; }
       const data = await res.json();
-      assemblies = (data.assemblies || []).filter(a => a && a.name).map(a => ({
-        ...a,
-        _search: [a.name, a.category, a.group, a.conduit_type, a.size, a.mounting].filter(Boolean).join(' ').toLowerCase(),
-        _n: String(a.name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() // normalized name, for ranking
-      }));
+      assemblies = (data.assemblies || []).filter(a => a && a.name).map(a => {
+        const _search = [a.name, a.category, a.group, a.conduit_type, a.size, a.mounting].filter(Boolean).join(' ').toLowerCase();
+        return {
+          ...a,
+          _search,
+          _searchN: _search.replace(/[^a-z0-9]+/g, ' ').trim(), // punctuation-normalized haystack used to MATCH (gate)
+          _n: String(a.name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() // normalized name, for ranking
+        };
+      });
       asmGroups = [...new Set(assemblies.map(a => a.group).filter(Boolean))];
       asmById = new Map(assemblies.map(a => [a.id, a]));   // index for resolving kit refs
       const btn = document.getElementById('mrAddAsm');
@@ -918,8 +927,8 @@
     const q = (document.getElementById('mrAsmSearch').value || '').trim().toLowerCase();
     const terms = q ? q.split(/\s+/) : [];
     const qn = q.replace(/[^a-z0-9]+/g, ' ').trim();
-    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);
-    const nTerms = terms.length;
+    const termsN = terms.map(t => t.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean);  // gate on these
+    const nTerms = termsN.length;  // empty query (nTerms 0) -> show all in the group
     // filter on _search (name + category + group + facets) so a category/group
     // word still finds a kit; then RANK by the assembly NAME — same relevance
     // model as the item autocomplete — so the tightest name match floats to #1.
@@ -928,7 +937,7 @@
       const a = assemblies[i];
       if (asmGroup && a.group !== asmGroup) continue;
       let ok = true;
-      for (let t = 0; t < nTerms; t++) { if (a._search.indexOf(terms[t]) < 0) { ok = false; break; } }
+      for (let t = 0; t < nTerms; t++) { if (a._searchN.indexOf(termsN[t]) < 0) { ok = false; break; } }
       if (ok) matches.push(a);
     }
     if (qn) {
