@@ -56,6 +56,7 @@
           <button type="button" id="mrAddItem" class="ghost-link mr-add">＋ Add item</button>
           <button type="button" id="mrAddCat" class="ghost-link mr-add" hidden>📚 Add from catalog</button>
           <button type="button" id="mrAddAsm" class="ghost-link mr-add" hidden>🧰 Add from assembly</button>
+          <button type="button" id="mrAddWire" class="ghost-link mr-add" hidden>⚡ Wire order</button>
         </div>
       </section>
 
@@ -128,6 +129,21 @@
         </div>
       </div>
 
+      <div id="mrWire" class="mr-asm" hidden>
+        <div class="mr-asm-card">
+          <div class="mr-asm-head">
+            <button type="button" id="mrWireBack" class="ghost-link" hidden>←</button>
+            <strong id="mrWireTitle">Wire Order</strong>
+            <button type="button" id="mrWireClose" class="ghost-link">✕</button>
+          </div>
+          <div id="mrWireMode" class="mr-photo-opts">
+            <button type="button" class="mr-photo-opt" data-wmode="feeder">🔌 Feeder wire <span class="mr-opt-sub">cut lengths, by pull</span></button>
+            <button type="button" class="mr-photo-opt" data-wmode="branch">🔀 Branch wire <span class="mr-opt-sub">full spools</span></button>
+          </div>
+          <div id="mrWireForm" class="mr-wire-form" hidden></div>
+        </div>
+      </div>
+
       <div id="mrConfirm" class="mr-confirm" hidden>
         <div class="mr-confirm-box">
           <p id="mrConfirmMsg" class="mr-confirm-msg"></p>
@@ -193,6 +209,14 @@
     document.getElementById('mrCatSearch').addEventListener('input', renderCatResults);
     document.getElementById('mrCatResults').addEventListener('click', onCatPick);
 
+    document.getElementById('mrAddWire').addEventListener('click', openWire);
+    document.getElementById('mrWireClose').addEventListener('click', closeWire);
+    document.getElementById('mrWireBack').addEventListener('click', showWireModes);
+    document.getElementById('mrWireMode').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-wmode]');
+      if (b) startWireForm(b.dataset.wmode);
+    });
+
     // Photo chooser, shared by the bottom "Attach photo" and each line's 📷:
     // one hidden file input (iOS shows Camera/Library/Files; desktop a file
     // dialog) + an explicit Paste button, plus a Ctrl+V listener for power users.
@@ -230,9 +254,13 @@
     document.getElementById('mrItems').addEventListener('input', (e) => {
       if (e.target.classList && e.target.classList.contains('mr-desc')) {
         const row = e.target.closest('.mr-item');
+        const changed = row && normDesc(e.target.value) !== row._mergedDesc;
         // Only drop the "combined" cue if the description actually changed to a
         // DIFFERENT material — keep it through typo/case/whitespace fixes.
-        if (row && (row._adds || 0) >= 2 && normDesc(e.target.value) !== row._mergedDesc) clearCombined(row);
+        if (row && (row._adds || 0) >= 2 && changed) clearCombined(row);
+        // The pull name belongs to the wire it was ordered for: keep it through
+        // a footage-only fix (230FT → 250FT), drop it if the material changes.
+        if (row && row._note && changed && !sameWireCut(e.target.value, row._mergedDesc)) { row._note = ''; markPull(row); }
       }
       updateSubmit(); autosave();
     });
@@ -263,7 +291,8 @@
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>
       <div class="mr-item-thumbs" hidden></div>
-      <div class="mr-combined" hidden></div>`;
+      <div class="mr-combined" hidden></div>
+      <div class="mr-pull" hidden></div>`;
     if (afterRow && afterRow.parentNode === wrap) afterRow.after(row);
     else wrap.appendChild(row);
 
@@ -292,10 +321,13 @@
   // into it instead of appending a duplicate (so the list stays short and the
   // order shows one line per item — no scattered hex-nut lines).
   function normDesc(s) { return String(s || '').trim().replace(/\s+/g, ' ').toUpperCase(); }
-  function mergeItemRow(desc, qty, source) {
+  // note (e.g. a feeder pull name) is part of a line's identity: lines from
+  // different pulls never merge, even with identical descriptions.
+  function mergeItemRow(desc, qty, source, note) {
     const want = normDesc(desc);
+    const wantNote = normDesc(note || '');
     const hit = want && [...document.querySelectorAll('#mrItems .mr-item')]
-      .find(r => { const v = r.querySelector('.mr-desc').value; return v.trim() && normDesc(v) === want; });
+      .find(r => { const v = r.querySelector('.mr-desc').value; return v.trim() && normDesc(v) === want && normDesc(r._note || '') === wantNote; });
     if (hit) {
       const qEl = hit.querySelector('.mr-qty');
       qEl.value = (parseInt(qEl.value, 10) || 1) + (qty || 1);
@@ -309,7 +341,25 @@
     row._adds = 1;
     row._asmOnly = (source === 'assembly');
     row._mergedDesc = want;
+    row._note = note || '';
+    markPull(row);
     return row;
+  }
+  // Discrete pull-name label under a wire line ("Pull: LP-1 FEEDER").
+  function markPull(row) {
+    const el = row.querySelector('.mr-pull');
+    if (!el) return;
+    const note = (row._note || '').trim();
+    el.hidden = !note;
+    if (note) el.textContent = `Pull: ${note}`;
+  }
+  // True when two descriptions are the SAME wire apart from the footage
+  // ("230FT - #2/0 XHHW CU BROWN" vs "250FT - …" → true), so a footage-only
+  // fix keeps the line's pull name.
+  function sameWireCut(a, b) {
+    const tail = (s) => { const m = /^\d+\s*FT\s*-\s*(.+)$/.exec(normDesc(s)); return m ? m[1] : null; };
+    const ta = tail(a);
+    return ta !== null && ta === tail(b);
   }
   // Discrete "this line is a summed total" note on consolidated rows.
   function combinedText(asmOnly) { return asmOnly ? 'from multiple assemblies' : 'combined'; }
@@ -497,18 +547,20 @@
       const qty = Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1);
       const photos = (row._photos || []).map(p => ({ name: p.name, file: p.file, url: p.url }));
       const rowCombined = (row._adds || 1) >= 2, rowAsmOnly = !!row._asmOnly;
-      const key = normDesc(description);
+      const note = (row._note || '').trim();
+      // note (pull name) is part of the identity — different pulls never merge
+      const key = normDesc(description) + '|' + normDesc(note);
       const prev = byDesc.get(key);
       if (prev) { prev.qty += qty; prev.photos.push(...photos); prev.rows += 1; prev.anyCombined = prev.anyCombined || rowCombined; prev.allAsm = prev.allAsm && rowAsmOnly; }
-      else byDesc.set(key, { description, qty, photos, rows: 1, anyCombined: rowCombined, allAsm: rowAsmOnly });
+      else byDesc.set(key, { description, qty, photos, note, rows: 1, anyCombined: rowCombined, allAsm: rowAsmOnly });
     }
     const merged = [...byDesc.values()];
     if (!merged.length) return;
     // A line is "combined" if multiple rows merged at submit OR a row was already
     // consolidated live; note it so the order + Previous Orders show the cue.
     const noteFor = (c) => ((c.rows >= 2 || c.anyCombined) ? combinedText(c.allAsm) : '');
-    const items = merged.map(c => ({ description: c.description, qty: c.qty, unit: '', note: '', photos: c.photos.map(p => p.name), combined_note: noteFor(c) }));
-    const sentItems = merged.map(c => ({ description: c.description, qty: c.qty, photos: c.photos.map(p => ({ name: p.name, file: p.file })), received: false, received_at: null, combined_note: noteFor(c) }));
+    const items = merged.map(c => ({ description: c.description, qty: c.qty, unit: '', note: c.note || '', photos: c.photos.map(p => p.name), combined_note: noteFor(c) }));
+    const sentItems = merged.map(c => ({ description: c.description, qty: c.qty, note: c.note || '', photos: c.photos.map(p => ({ name: p.name, file: p.file })), received: false, received_at: null, combined_note: noteFor(c) }));
     const itemPhotoFiles = merged.flatMap(c => c.photos);
 
     // photos[] = general (request-level) + every line's linked photos.
@@ -652,6 +704,7 @@
       });
       const btn = document.getElementById('mrAddCat');
       if (btn && catalog.length) btn.hidden = false;   // reveal the catalog picker
+      buildWireIndex();                                // sizes for the Wire Order wizard
       shell.log(`✓ Items catalog: ${catalog.length} entries`);
     } catch (err) {
       shell.log(`Items catalog load failed: ${err.message}`);
@@ -730,6 +783,223 @@
     toast(`Added "${hit.description}"`);
     autosave();
   }
+
+  // ── Wire Order wizard (feeder cuts by pull / branch spools) ───────────────
+  // Color is an ORDER-TIME attribute — the catalog deliberately has no colored
+  // wire items. The wizard picks one size/type/material and fans out one line
+  // per color. Feeder: "<ft>FT - <size> <type> <mat> <COLOR>", qty = parallel
+  // sets, grouped under a pull name carried as the line note (so different
+  // pulls never merge). Branch: "<spool>FT SPOOL - ...", qty = spools per color.
+  const WIRE_SYSTEMS = {
+    '120/208': ['BLACK', 'RED', 'BLUE', 'WHITE', 'GREEN'],
+    '277/480': ['BROWN', 'PURPLE', 'YELLOW', 'GRAY', 'GREEN']
+  };
+  const WIRE_SWATCH = { BLACK: '#222', RED: '#d22', BLUE: '#26d', WHITE: '#eee', GREEN: '#2a2', BROWN: '#85432a', PURPLE: '#92d', YELLOW: '#dc2', GRAY: '#999' };
+  const WIRE_SIZE_ORDER = ['#18', '#16', '#14', '#12', '#10', '#8', '#6', '#4', '#3', '#2', '#1', '#1/0', '#2/0', '#3/0', '#4/0', '#250MCM', '#300MCM', '#350MCM', '#400MCM', '#500MCM', '#600MCM', '#700MCM', '#750MCM', '#1000MCM'];
+  let wireIndex = null;       // 'THHN|CU' -> [sizes…] derived from the catalog
+  let wire = null;            // active wizard state
+
+  function buildWireIndex() {
+    const idx = {};
+    for (const it of catalog) {
+      const m = /^(#\S+)\s+(THHN|XHHW)(\s+AL)?$/.exec(String(it.description).trim().toUpperCase());
+      if (!m) continue;
+      const key = m[2] + '|' + (m[3] ? 'AL' : 'CU');
+      (idx[key] = idx[key] || new Set()).add(m[1]);
+    }
+    for (const k of Object.keys(idx)) {
+      idx[k] = [...idx[k]].sort((a, b) => {
+        const ia = WIRE_SIZE_ORDER.indexOf(a), ib = WIRE_SIZE_ORDER.indexOf(b);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      });
+    }
+    wireIndex = idx;
+    const btn = document.getElementById('mrAddWire');
+    if (btn && Object.keys(idx).length) btn.hidden = false;
+  }
+
+  function openWire() {
+    document.getElementById('mrWire').hidden = false;
+    // Resume a form dismissed mid-entry (backdrop tap / ✕) instead of wiping it.
+    // Completed adds null `wire`, so those reopen at the mode chooser; the
+    // childElementCount guard covers a module remount (state without DOM).
+    const form = document.getElementById('mrWireForm');
+    if (wire && form.childElementCount) {
+      document.getElementById('mrWireMode').hidden = true;
+      form.hidden = false;
+      document.getElementById('mrWireBack').hidden = false;
+      document.getElementById('mrWireTitle').textContent = wire.mode === 'feeder' ? 'Feeder wire' : 'Branch wire';
+    } else showWireModes();
+  }
+  function closeWire() { document.getElementById('mrWire').hidden = true; }
+  function showWireModes() {
+    document.getElementById('mrWireMode').hidden = false;
+    document.getElementById('mrWireForm').hidden = true;
+    document.getElementById('mrWireBack').hidden = true;
+    document.getElementById('mrWireTitle').textContent = 'Wire Order';
+    wire = null;
+  }
+  function startWireForm(mode) {
+    wire = {
+      mode,                                    // 'feeder' | 'branch'
+      system: '120/208',
+      colors: new Set(WIRE_SYSTEMS['120/208']),
+      type: mode === 'feeder' ? 'XHHW' : 'THHN',
+      mat: 'CU',
+      size: null,
+      pull: '', cutFt: '', sets: 1,            // feeder
+      spool: 500, spools: 1                    // branch
+    };
+    document.getElementById('mrWireMode').hidden = true;
+    document.getElementById('mrWireForm').hidden = false;
+    document.getElementById('mrWireBack').hidden = false;
+    document.getElementById('mrWireTitle').textContent = mode === 'feeder' ? 'Feeder wire' : 'Branch wire';
+    renderWireForm();
+  }
+
+  function renderWireForm() {
+    const f = document.getElementById('mrWireForm');
+    const sysChips = Object.keys(WIRE_SYSTEMS).map(s =>
+      `<button type="button" class="chip${wire.system === s ? ' active' : ''}" data-wsys="${esc(s)}">${esc(s)}</button>`).join('');
+    f.innerHTML =
+      `<div class="field"><label>Voltage system</label><div class="chip-row" id="mrWireSys">${sysChips}</div></div>` +
+      `<div class="field"><label>Colors</label><div class="chip-row" id="mrWireColors"></div></div>` +
+      `<div class="field mr-two-col">
+         <div><label>Type</label><div class="chip-row" id="mrWireType">
+           <button type="button" class="chip${wire.type === 'THHN' ? ' active' : ''}" data-wtype="THHN">THHN</button>
+           <button type="button" class="chip${wire.type === 'XHHW' ? ' active' : ''}" data-wtype="XHHW">XHHW</button></div></div>
+         <div><label>Material</label><div class="chip-row" id="mrWireMat">
+           <button type="button" class="chip${wire.mat === 'CU' ? ' active' : ''}" data-wmat="CU">Copper</button>
+           <button type="button" class="chip${wire.mat === 'AL' ? ' active' : ''}" data-wmat="AL">Aluminum</button></div></div>
+       </div>` +
+      `<div class="field"><label>Size</label><div class="chip-row mr-wire-sizes" id="mrWireSizes"></div></div>` +
+      (wire.mode === 'feeder'
+        ? `<div class="field"><label for="mrWirePull">Pull name</label><input id="mrWirePull" type="text" placeholder="e.g. PANEL LP-1 FEEDER" autocomplete="off"></div>
+           <div class="field mr-two-col">
+             <div><label for="mrWireCut">Cut length (ft)</label><input id="mrWireCut" type="number" inputmode="numeric" min="1" placeholder="e.g. 230"></div>
+             <div><label for="mrWireSets">Parallel sets</label><input id="mrWireSets" type="number" inputmode="numeric" min="1" value="1"></div>
+           </div>`
+        : `<div class="field mr-two-col">
+             <div><label>Spool</label><div class="chip-row" id="mrWireSpool">
+               <button type="button" class="chip active" data-wspool="500">500 ft</button>
+               <button type="button" class="chip" data-wspool="1000">1000 ft</button></div></div>
+             <div><label for="mrWireSpools">Spools per color</label><input id="mrWireSpools" type="number" inputmode="numeric" min="1" value="1"></div>
+           </div>`) +
+      `<div id="mrWirePreview" class="mr-asm-preview"></div>` +
+      `<button type="button" id="mrWireAdd" class="shutter" disabled><span class="shutter-label">Add to request</span></button>`;
+
+    f.querySelector('#mrWireSys').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-wsys]'); if (!c) return;
+      wire.system = c.dataset.wsys;
+      wire.colors = new Set(WIRE_SYSTEMS[wire.system]);
+      [...f.querySelectorAll('#mrWireSys .chip')].forEach(x => x.classList.toggle('active', x.dataset.wsys === wire.system));
+      renderWireColors(); updateWirePreview();
+    });
+    f.querySelector('#mrWireType').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-wtype]'); if (!c) return;
+      wire.type = c.dataset.wtype;
+      [...f.querySelectorAll('#mrWireType .chip')].forEach(x => x.classList.toggle('active', x.dataset.wtype === wire.type));
+      renderWireSizes(); updateWirePreview();
+    });
+    f.querySelector('#mrWireMat').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-wmat]'); if (!c) return;
+      wire.mat = c.dataset.wmat;
+      [...f.querySelectorAll('#mrWireMat .chip')].forEach(x => x.classList.toggle('active', x.dataset.wmat === wire.mat));
+      renderWireSizes(); updateWirePreview();
+    });
+    if (wire.mode === 'feeder') {
+      f.querySelector('#mrWirePull').addEventListener('input', (e) => { wire.pull = e.target.value; updateWirePreview(); });
+      f.querySelector('#mrWireCut').addEventListener('input', (e) => { wire.cutFt = e.target.value; updateWirePreview(); });
+      f.querySelector('#mrWireSets').addEventListener('input', (e) => { wire.sets = parseInt(e.target.value, 10); updateWirePreview(); });
+    } else {
+      f.querySelector('#mrWireSpool').addEventListener('click', (e) => {
+        const c = e.target.closest('[data-wspool]'); if (!c) return;
+        wire.spool = +c.dataset.wspool;
+        [...f.querySelectorAll('#mrWireSpool .chip')].forEach(x => x.classList.toggle('active', +x.dataset.wspool === wire.spool));
+        updateWirePreview();
+      });
+      f.querySelector('#mrWireSpools').addEventListener('input', (e) => { wire.spools = parseInt(e.target.value, 10); updateWirePreview(); });
+    }
+    f.querySelector('#mrWireAdd').addEventListener('click', addWire);
+    renderWireColors();
+    renderWireSizes();
+    updateWirePreview();
+  }
+
+  function renderWireColors() {
+    const el = document.getElementById('mrWireColors');
+    el.innerHTML = WIRE_SYSTEMS[wire.system].map(c =>
+      `<button type="button" class="chip${wire.colors.has(c) ? ' active' : ''}" data-wcolor="${esc(c)}"><span class="mr-wdot" style="background:${WIRE_SWATCH[c] || '#888'}"></span>${esc(c)}</button>`).join('');
+    if (!el._wired) {
+      el._wired = true;
+      el.addEventListener('click', (e) => {
+        const c = e.target.closest('[data-wcolor]'); if (!c) return;
+        const col = c.dataset.wcolor;
+        if (wire.colors.has(col)) wire.colors.delete(col); else wire.colors.add(col);
+        c.classList.toggle('active', wire.colors.has(col));
+        updateWirePreview();
+      });
+    }
+  }
+  function renderWireSizes() {
+    const el = document.getElementById('mrWireSizes');
+    const sizes = (wireIndex && wireIndex[wire.type + '|' + wire.mat]) || [];
+    if (wire.size && !sizes.includes(wire.size)) wire.size = null;
+    el.innerHTML = sizes.length
+      ? sizes.map(s => `<button type="button" class="chip${wire.size === s ? ' active' : ''}" data-wsize="${esc(s)}">${esc(s)}</button>`).join('')
+      : '<p class="hint" style="text-align:left;margin:0">No catalog wire for this type/material.</p>';
+    if (!el._wired) {
+      el._wired = true;
+      el.addEventListener('click', (e) => {
+        const c = e.target.closest('[data-wsize]'); if (!c) return;
+        wire.size = c.dataset.wsize;
+        [...el.querySelectorAll('.chip')].forEach(x => x.classList.toggle('active', x.dataset.wsize === wire.size));
+        updateWirePreview();
+      });
+    }
+  }
+
+  // The lines this wizard adds — one per selected color, in system order.
+  function wireLines() {
+    if (!wire || !wire.size || !wire.colors.size) return [];
+    const base = `${wire.size} ${wire.type} ${wire.mat}`;
+    const colors = WIRE_SYSTEMS[wire.system].filter(c => wire.colors.has(c));
+    if (wire.mode === 'feeder') {
+      const ft = parseInt(wire.cutFt, 10);
+      if (!ft || ft < 1) return [];
+      if (!(wire.sets >= 1)) return [];      // a typed 0/blank disables Add (no silent qty 1)
+      return colors.map(c => ({ desc: `${ft}FT - ${base} ${c}`, qty: wire.sets, note: wire.pull.trim() }));
+    }
+    if (!(wire.spools >= 1)) return [];
+    return colors.map(c => ({ desc: `${wire.spool}FT SPOOL - ${base} ${c}`, qty: wire.spools, note: '' }));
+  }
+  function updateWirePreview() {
+    const lines = wireLines();
+    const el = document.getElementById('mrWirePreview');
+    const btn = document.getElementById('mrWireAdd');
+    if (!el || !btn) return;
+    btn.disabled = !lines.length;
+    if (!lines.length) {
+      el.innerHTML = `<p class="hint" style="text-align:left;margin:0">${!wire.size ? 'Pick a size.' : (!wire.colors.size ? 'Pick at least one color.' : (wire.mode === 'feeder' ? 'Enter the cut length and parallel sets.' : 'Enter spools per color.'))}</p>`;
+      return;
+    }
+    const pull = wire.mode === 'feeder' ? wire.pull.trim() : '';
+    const rows = lines.map(l => `<tr><td class="q">${l.qty}</td><td>${esc(l.desc)}</td></tr>`).join('');
+    el.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 6px">${pull ? `Pull "${esc(pull)}" — adds` : 'Adds'} ${lines.length} line${lines.length === 1 ? '' : 's'}:</p>` +
+      `<table class="mr-asm-tbl"><tbody>${rows}</tbody></table>`;
+  }
+  function addWire() {
+    const lines = wireLines();
+    if (!lines.length) return;
+    const rows = [...document.querySelectorAll('#mrItems .mr-item')];
+    if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
+    for (const l of lines) mergeItemRow(l.desc, l.qty, 'wire', l.note);
+    updateSubmit();
+    closeWire();
+    wire = null;   // completed — next open starts fresh at the mode chooser
+    toast(`Added ${lines.length} wire line${lines.length === 1 ? '' : 's'}`);
+    autosave();
+  }
   function injectAutoStyles() {
     if (document.getElementById('mrAutoStyle')) return;
     const s = document.createElement('style');
@@ -774,6 +1044,13 @@
       '.mr-combined{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
       '.mr-combined[hidden]{display:none}' +
       '.mr-combined-inline{color:var(--muted);font-style:italic;font-size:12px}' +
+      '.mr-pull{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
+      '.mr-pull[hidden]{display:none}' +
+      '.mr-opt-sub{display:block;font-size:12px;color:var(--muted);margin-top:2px}' +
+      '.mr-wire-form{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px}' +
+      '.mr-wire-form[hidden]{display:none}' +
+      '.mr-wire-sizes{max-height:128px;overflow:auto;-webkit-overflow-scrolling:touch}' +
+      '.mr-wdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;border:1px solid var(--border);vertical-align:-1px}' +
       '.mr-rush{color:#f85149;font-size:12px;font-weight:700}' +
       '.mr-confirm{position:fixed;inset:0;z-index:3200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px}' +
       '.mr-confirm[hidden]{display:none}' +
@@ -1106,7 +1383,7 @@
       description: row.querySelector('.mr-desc').value.trim(),
       qty: Math.max(1, parseInt(row.querySelector('.mr-qty').value, 10) || 1),
       photos: (row._photos || []).map(p => ({ name: p.name, file: p.file })),
-      adds: row._adds || 1, asmOnly: !!row._asmOnly
+      adds: row._adds || 1, asmOnly: !!row._asmOnly, note: row._note || ''
     })).filter(it => it.description || it.photos.length);
   }
   function collectIntoActive() {
@@ -1153,7 +1430,7 @@
         row._photos = it.photos.map(p => ({ name: p.name, file: p.file, url: URL.createObjectURL(p.file) }));
         renderItemThumbs(row);
       }
-      if (it) { row._adds = it.adds || 1; row._asmOnly = !!it.asmOnly; row._mergedDesc = normDesc(it.description || ''); markCombined(row); }
+      if (it) { row._adds = it.adds || 1; row._asmOnly = !!it.asmOnly; row._mergedDesc = normDesc(it.description || ''); row._note = it.note || ''; markCombined(row); markPull(row); }
     }
     document.getElementById('mrNeededBy').value = d.needed_by || '';
     document.getElementById('mrNote').value = d.note || '';
@@ -1263,7 +1540,7 @@
       `<label class="mr-recv-row${it.received ? ' done' : ''}">
         <input type="checkbox" data-sent="${esc(s.id)}" data-i="${i}"${it.received ? ' checked' : ''}>
         <span class="mr-recv-qty">${it.qty}</span>
-        <span class="mr-recv-desc">${esc(it.description)}${it.combined_note ? ` <span class="mr-combined-inline">(${esc(it.combined_note)})</span>` : ''}</span>
+        <span class="mr-recv-desc">${esc(it.description)}${it.note ? ` <span class="mr-combined-inline">(${esc(it.note)})</span>` : ''}${it.combined_note ? ` <span class="mr-combined-inline">(${esc(it.combined_note)})</span>` : ''}</span>
       </label>`).join('');
     return `<div class="mr-sent-card" data-id="${esc(s.id)}">
       <button type="button" class="mr-sent-head" data-toggle="${esc(s.id)}">
