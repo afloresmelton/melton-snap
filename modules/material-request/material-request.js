@@ -439,6 +439,13 @@
   function renderGroups() {
     const wrap = document.getElementById('mrItems');
     if (!wrap) return;
+    if (!wrap._editWired) {   // one delegated handler: ✏️ on a pull header opens the edit wizard
+      wrap._editWired = true;
+      wrap.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-editpull]');
+        if (b) { e.preventDefault(); editPull(b.getAttribute('data-editpull')); }
+      });
+    }
     [...wrap.querySelectorAll('.mr-grp')].forEach(h => h.remove());
     let curPull = null, curSet = null;
     for (const row of [...wrap.querySelectorAll('.mr-item')]) {
@@ -446,7 +453,8 @@
       row.classList.toggle('mr-item-child', !!pull);
       if (!pull) { curPull = null; curSet = null; continue; }
       if (pull !== curPull) {
-        const h = document.createElement('div'); h.className = 'mr-grp mr-grp-pull'; h.textContent = '⚡ ' + pull;
+        const h = document.createElement('div'); h.className = 'mr-grp mr-grp-pull';
+        h.innerHTML = `<span>⚡ ${esc(pull)}</span><button type="button" class="mr-grp-edit" data-editpull="${esc(pull)}">✏️ Edit</button>`;
         wrap.insertBefore(h, row); curPull = pull; curSet = null;
       }
       if (set !== curSet) {
@@ -931,6 +939,7 @@
   const WIRE_SIZE_ORDER = ['#18', '#16', '#14', '#12', '#10', '#8', '#6', '#4', '#3', '#2', '#1', '#1/0', '#2/0', '#3/0', '#4/0', '#250MCM', '#300MCM', '#350MCM', '#400MCM', '#500MCM', '#600MCM', '#700MCM', '#750MCM', '#1000MCM'];
   let wireIndex = null;       // 'THHN|CU' -> [sizes…] derived from the catalog
   let wire = null;            // active wizard state
+  let editingPull = null;     // when set, addWire REPLACES this pull's rows (edit, not add)
 
   function buildWireIndex() {
     const idx = {};
@@ -961,7 +970,7 @@
       document.getElementById('mrWireMode').hidden = true;
       form.hidden = false;
       document.getElementById('mrWireBack').hidden = false;
-      document.getElementById('mrWireTitle').textContent = wire.mode === 'feeder' ? 'Feeder wire' : 'Branch wire';
+      document.getElementById('mrWireTitle').textContent = wire.mode === 'feeder' ? (editingPull != null ? 'Edit feeder pull' : 'Feeder wire') : 'Branch wire';
     } else showWireModes();
   }
   function closeWire() { document.getElementById('mrWire').hidden = true; }
@@ -971,8 +980,10 @@
     document.getElementById('mrWireBack').hidden = true;
     document.getElementById('mrWireTitle').textContent = 'Wire Order';
     wire = null;
+    editingPull = null;
   }
   function startWireForm(mode) {
+    editingPull = null;   // a fresh add, not an edit
     wire = {
       mode,                                    // 'feeder' | 'branch'
       system: '120/208',
@@ -1009,10 +1020,10 @@
       `<div class="field"><label>${wire.mode === 'feeder' ? 'Phase & neutral size' : 'Size'}</label><div class="chip-row mr-wire-sizes" id="mrWireSizes"></div></div>` +
       (wire.mode === 'feeder'
         ? `<div class="field"><label>Ground (green) size <span class="label-aside">— sized separately</span></label><div class="chip-row mr-wire-sizes" id="mrWireGround"></div></div>
-           <div class="field"><label for="mrWirePull">Pull name</label><input id="mrWirePull" type="text" placeholder="e.g. PANEL LP-1 FEEDER" autocomplete="off"></div>
+           <div class="field"><label for="mrWirePull">Pull name</label><input id="mrWirePull" type="text" placeholder="e.g. PANEL LP-1 FEEDER" autocomplete="off" value="${esc(wire.pull || '')}"></div>
            <div class="field mr-two-col">
-             <div><label for="mrWireCut">Cut length (ft)</label><input id="mrWireCut" type="number" inputmode="numeric" min="1" placeholder="e.g. 230"></div>
-             <div><label for="mrWireSets">Parallel sets</label><input id="mrWireSets" type="number" inputmode="numeric" min="1" value="1"></div>
+             <div><label for="mrWireCut">Cut length (ft)</label><input id="mrWireCut" type="number" inputmode="numeric" min="1" placeholder="e.g. 230" value="${wire.cutFt || ''}"></div>
+             <div><label for="mrWireSets">Parallel sets</label><input id="mrWireSets" type="number" inputmode="numeric" min="1" value="${wire.sets || 1}"></div>
            </div>`
         : `<div class="field mr-two-col">
              <div><label>Spool</label><div class="chip-row" id="mrWireSpool">
@@ -1021,7 +1032,7 @@
              <div><label for="mrWireSpools">Spools per color</label><input id="mrWireSpools" type="number" inputmode="numeric" min="1" value="1"></div>
            </div>`) +
       `<div id="mrWirePreview" class="mr-asm-preview"></div>` +
-      `<button type="button" id="mrWireAdd" class="shutter" disabled><span class="shutter-label">Add to request</span></button>`;
+      `<button type="button" id="mrWireAdd" class="shutter" disabled><span class="shutter-label">${editingPull != null ? 'Save changes' : 'Add to request'}</span></button>`;
 
     f.querySelector('#mrWireSys').addEventListener('click', (e) => {
       const c = e.target.closest('[data-wsys]'); if (!c) return;
@@ -1175,6 +1186,30 @@
   function addWire() {
     const lines = wireLines();
     if (!lines.length) return;
+    // EDIT MODE: replace an existing pull's rows in place (rename / resize /
+    // recolor / change footage or sets) without redoing it. editingPull = the
+    // original pull name; rebuild at sets 1..N in the pull's current slot.
+    if (wire.mode === 'feeder' && editingPull != null) {
+      const pull = lines[0].pull;
+      const oldRows = [...document.querySelectorAll('#mrItems .mr-item')].filter(r => parsePull(r._note).pull === editingPull);
+      const wrap = document.getElementById('mrItems');
+      const anchor = oldRows[0] || null;   // keep the pull where it is in the list
+      for (const l of lines) {
+        const row = addItemRow(l.desc, l.qty);
+        row._note = `${pull} · Set ${l.set}`;
+        row._mergedDesc = normDesc(l.desc);
+        if (anchor) wrap.insertBefore(row, anchor);
+      }
+      oldRows.forEach(r => r.remove());
+      editingPull = null;
+      renderGroups();
+      updateSubmit();
+      closeWire();
+      wire = null;
+      toast(`Updated ${lines.length} wire line${lines.length === 1 ? '' : 's'}`);
+      autosave();
+      return;
+    }
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
     if (wire.mode === 'feeder') {
@@ -1197,6 +1232,47 @@
     wire = null;   // completed — next open starts fresh at the mode chooser
     toast(`Added ${lines.length} wire line${lines.length === 1 ? '' : 's'}`);
     autosave();
+  }
+  // Re-open the feeder wizard pre-filled from an existing pull's rows so the
+  // user can tweak it (rename, resize, recolor, footage, sets) without redoing
+  // it. Reconstructs wire state from the conductor descriptions + set notes;
+  // saving REPLACES the pull (addWire's edit branch). Per-set differing footage
+  // collapses to the entered cut length (the wizard is single-cut).
+  function editPull(pull) {
+    const rows = [...document.querySelectorAll('#mrItems .mr-item')].filter(r => parsePull(r._note).pull === pull);
+    if (!rows.length) return;
+    const colors = new Set();
+    const sets = new Set();
+    let type = 'THHN', mat = 'CU', phaseSize = null, groundSize = null, cutFt = '';
+    for (const r of rows) {
+      const parts = r.querySelector('.mr-desc').value.trim().split(/\s+/);
+      const sz = parts[0], color = parts[parts.length - 1];
+      if (parts[1]) type = parts[1];
+      if (parts[2]) mat = parts[2];
+      if (color) colors.add(color);
+      if (color === 'GREEN') { if (!groundSize) groundSize = sz; }
+      else if (!phaseSize) phaseSize = sz;
+      const ps = parsePull(r._note); if (ps.set) sets.add(ps.set);
+      const q = r.querySelector('.mr-qty').value; if (q && !cutFt) cutFt = q;
+    }
+    const is480 = [...colors].some(c => ['BROWN', 'PURPLE', 'YELLOW', 'GRAY'].includes(c));
+    wire = {
+      mode: 'feeder',
+      system: is480 ? '277/480' : '120/208',
+      colors,
+      type: type === 'XHHW' ? 'XHHW' : 'THHN',
+      mat: mat === 'AL' ? 'AL' : 'CU',
+      size: phaseSize, groundSize,
+      pull, cutFt, sets: sets.size || 1,
+      spool: 500, spools: 1
+    };
+    editingPull = pull;
+    document.getElementById('mrWire').hidden = false;
+    document.getElementById('mrWireMode').hidden = true;
+    document.getElementById('mrWireForm').hidden = false;
+    document.getElementById('mrWireBack').hidden = false;
+    document.getElementById('mrWireTitle').textContent = 'Edit feeder pull';
+    renderWireForm();
   }
   function injectAutoStyles() {
     if (document.getElementById('mrAutoStyle')) return;
@@ -1242,7 +1318,8 @@
       '.mr-combined{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
       '.mr-combined[hidden]{display:none}' +
       '.mr-combined-inline{color:var(--muted);font-style:italic;font-size:12px}' +
-      '.mr-grp-pull{font-weight:700;color:var(--text);font-size:14px;padding:10px 2px 2px;border-top:1px solid var(--border);margin-top:4px}' +
+      '.mr-grp-pull{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:700;color:var(--text);font-size:14px;padding:10px 2px 2px;border-top:1px solid var(--border);margin-top:4px}' +
+      '.mr-grp-edit{flex:none;font-weight:600;font-size:12px;line-height:1;color:var(--text);background:rgba(127,127,127,.14);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
       '.mr-grp-set{color:var(--muted);font-size:12px;padding:2px 2px 2px 14px}' +
       '.mr-item-child{margin-left:12px}' +
       '.mr-prev-set{font-size:12px;color:var(--muted);margin:8px 0 2px;font-weight:600}' +
