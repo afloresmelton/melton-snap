@@ -250,6 +250,31 @@
     // sheet — My lists, Sent orders, catalog, assembly, photo chooser.
     root.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('mr-asm')) e.target.hidden = true; });
 
+    // Freeze the page behind any open sheet (iOS lets inner scrolling "chain"
+    // to the page otherwise). A MutationObserver on `hidden` covers every
+    // open/close path — ✕ buttons, backdrop taps, Add-and-close flows.
+    sheetEls = [...root.querySelectorAll('.mr-asm, .mr-confirm')];
+    const sheetObserver = new MutationObserver(() => {
+      syncSheetLock();
+      if (window.visualViewport) applyKeyboardFit(window.visualViewport.height, window.innerHeight);
+    });
+    sheetEls.forEach(el => sheetObserver.observe(el, { attributes: true, attributeFilter: ['hidden'] }));
+    // Keyboard-aware sheet fit (see applyKeyboardFit) — reacts to the on-screen
+    // keyboard shrinking the visual viewport.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => applyKeyboardFit(window.visualViewport.height, window.innerHeight));
+    }
+    root._kbFit = applyKeyboardFit;   // test/debug seam
+    // Scrolling the search results dismisses the keyboard, so the search box
+    // (and what you typed) snaps back into view while you browse options.
+    for (const id of ['mrCatResults', 'mrAsmResults']) {
+      const sc = document.getElementById(id);
+      if (sc) sc.addEventListener('scroll', () => {
+        const a = document.activeElement;
+        if (a && (a.id === 'mrCatSearch' || a.id === 'mrAsmSearch')) a.blur();
+      }, { passive: true });
+    }
+
     // Auto-save the active running list as the foreman builds it
     document.getElementById('mrItems').addEventListener('input', (e) => {
       if (e.target.classList && e.target.classList.contains('mr-desc')) {
@@ -533,6 +558,44 @@
     }
     normalizeImage(img).then(f => addPhotoToTarget(f, target));
     if (sheetOpen) closePhotoSheet();
+  }
+
+  // ── Sheet scroll containment + keyboard fit (iOS) ──────────────────────────
+  // While any sheet/dialog is open the BODY is frozen with position:fixed
+  // (preserving the scroll spot) so touch scrolling inside the sheet can't
+  // move the page behind — iOS ignores overflow:hidden for touch, this works.
+  let sheetEls = [];
+  let _sheetLocked = false, _sheetScrollY = 0;
+  function syncSheetLock() {
+    const anyOpen = sheetEls.some(el => !el.hidden);
+    if (anyOpen === _sheetLocked) return;
+    const b = document.body.style;
+    if (anyOpen) {
+      _sheetScrollY = window.scrollY || 0;
+      b.position = 'fixed'; b.top = `-${_sheetScrollY}px`; b.left = '0'; b.right = '0'; b.width = '100%';
+    } else {
+      b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = '';
+      window.scrollTo(0, _sheetScrollY);
+    }
+    _sheetLocked = anyOpen;
+  }
+  // When the on-screen keyboard shrinks the visual viewport, pin the OPEN sheet
+  // to the top and cap its height to the space the keyboard leaves — so the
+  // search box stays on screen instead of iOS panning it away.
+  function applyKeyboardFit(vvHeight, layoutHeight) {
+    const kb = !!vvHeight && (layoutHeight - vvHeight) > 140;   // keyboard likely up
+    for (const el of sheetEls) {
+      if (!el.classList.contains('mr-asm')) continue;
+      const card = el.querySelector('.mr-asm-card');
+      if (!card) continue;
+      if (kb && !el.hidden) {
+        el.classList.add('mr-kb');
+        card.style.maxHeight = Math.max(220, vvHeight - 10) + 'px';
+      } else {
+        el.classList.remove('mr-kb');
+        card.style.maxHeight = '';
+      }
+    }
   }
 
   // ── Toast: transient confirmation that shows ABOVE an open picker sheet ────
@@ -1073,6 +1136,9 @@
       '.mr-confirm-cancel:active{background:var(--chip-bg)}' +
       '.mr-confirm-ok{background:#da3633;color:#fff;border-color:#da3633}' +
       '.mr-asm-results{overflow:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}' +
+      '.mr-asm-results,#mrAsmConfig,.mr-wire-form{overscroll-behavior:contain}' +
+      '.mr-asm.mr-kb{align-items:flex-start}' +
+      '.mr-asm.mr-kb .mr-asm-card{border-radius:0 0 16px 16px}' +
       '.mr-asm-row{padding:12px 4px;border-bottom:1px solid var(--border);cursor:pointer}' +
       '.mr-asm-row:active{background:var(--chip-bg)}' +
       '.mr-asm-name{font-size:15px;color:var(--text)}' +
