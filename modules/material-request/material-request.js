@@ -185,7 +185,13 @@
       </div>`;
 
     injectAutoStyles();
-    document.getElementById('mrAddItem').addEventListener('click', () => { addItemRow(); document.querySelector('#mrItems .mr-item:last-child .mr-qty').focus(); });
+    document.getElementById('mrAddItem').addEventListener('click', () => {
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();  // commit pending text into the field it's in
+      const prev = document.querySelector('#mrItems .mr-item:last-child');
+      const row = addItemRow();
+      clearAutofill(row, prev);                                                                  // don't let the new row copy the one above
+      setTimeout(() => row.querySelector('.mr-qty').focus(), 0);
+    });
     document.getElementById('mrAttach').addEventListener('click', onAttach);
     document.getElementById('mrSubmit').addEventListener('click', onSubmit);
     document.getElementById('mrUrgency').addEventListener('click', (e) => {
@@ -301,17 +307,24 @@
   }
 
   // ── Line items (DOM is the source of truth; state stays in the inputs) ───
+  let _rowSeq = 0;
+  // Defends against WebKit AUTOFILL copying the row above into a freshly-added
+  // blank row (Safari treats same-type/same-name inputs as one field group and
+  // pre-fills the new one — duplicating the line on "Add item" AND on Enter).
+  // Unique per-row field names + autocomplete/autocorrect off break the
+  // grouping; clearAutofill() is a cleanup guard if anything slips through.
   function addItemRow(desc, qty, afterRow) {
     const wrap = document.getElementById('mrItems');
     const row = document.createElement('div');
     row.className = 'mr-item';
     row._photos = [];          // [{ file, name, url }] photos linked to THIS line
+    const seq = ++_rowSeq;
     // Quantity first, then Item Description, then 📷 (link a photo to this line)
     // and remove. No unit field — quantity + description is all we track.
     row.innerHTML = `
       <div class="mr-item-main">
-        <input class="mr-qty" type="number" min="1" inputmode="numeric" value="${qty || ''}" placeholder="Qty" aria-label="Quantity">
-        <input class="mr-desc" type="text" autocomplete="off" placeholder="Item description" value="${esc(desc || '')}">
+        <input class="mr-qty" type="number" min="1" inputmode="numeric" name="mrq${seq}" autocomplete="off" value="${qty || ''}" placeholder="Qty" aria-label="Quantity">
+        <input class="mr-desc" type="text" name="mrd${seq}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Item description" value="${esc(desc || '')}">
         <button type="button" class="mr-item-photo" aria-label="Attach a photo to this item" title="Attach a photo to this item — pick from your photos or paste a screenshot">📷</button>
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>
@@ -346,11 +359,31 @@
       // item duplicated onto the next line" in the field.
       descEl.blur();
       const next = addItemRow(undefined, undefined, row);
+      clearAutofill(next, row);
       setTimeout(() => next.querySelector('.mr-qty').focus(), 0);
       updateSubmit();
     });
     row.querySelector('.mr-item-photo').addEventListener('click', () => openPhotoSheet({ kind: 'item', row }));
     return row;
+  }
+
+  // Guard: a brand-new blank row should never carry the row-above's values. If
+  // WebKit autofill pre-fills it to match `sourceRow`, wipe it (checked over a
+  // few frames since the fill lands async). Equality-to-source means we only
+  // clear an actual copy, never something the user just typed.
+  function clearAutofill(newRow, sourceRow) {
+    if (!newRow) return;
+    const sq = sourceRow ? sourceRow.querySelector('.mr-qty').value : '';
+    const sd = sourceRow ? sourceRow.querySelector('.mr-desc').value : '';
+    const sweep = () => {
+      const nq = newRow.querySelector('.mr-qty'), nd = newRow.querySelector('.mr-desc');
+      if (!nq || !nd) return;
+      if (document.activeElement !== nq && nq.value && nq.value === sq) nq.value = '';
+      if (document.activeElement !== nd && nd.value && nd.value === sd) nd.value = '';
+    };
+    requestAnimationFrame(sweep);
+    setTimeout(sweep, 80);
+    setTimeout(sweep, 250);
   }
 
   // Add a material, but if a line with the SAME description already exists, sum
