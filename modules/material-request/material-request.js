@@ -291,7 +291,7 @@
         if (row && (row._adds || 0) >= 2 && changed) clearCombined(row);
         // The pull name belongs to the wire it was ordered for: keep it through
         // a footage-only fix (230FT → 250FT), drop it if the material changes.
-        if (row && row._note && changed && !sameWireCut(e.target.value, row._mergedDesc)) { row._note = ''; markPull(row); }
+        if (row && row._note && changed) { row._note = ''; renderGroups(); }   // retyped to another material → detach from its pull
       }
       updateSubmit(); autosave();
     });
@@ -329,8 +329,7 @@
         <button type="button" class="mr-del" aria-label="Remove item">✕</button>
       </div>
       <div class="mr-item-thumbs" hidden></div>
-      <div class="mr-combined" hidden></div>
-      <div class="mr-pull" hidden></div>`;
+      <div class="mr-combined" hidden></div>`;
     if (afterRow && afterRow.parentNode === wrap) afterRow.after(row);
     else wrap.appendChild(row);
 
@@ -338,6 +337,7 @@
       (row._photos || []).forEach(p => p.url && URL.revokeObjectURL(p.url));
       row.remove();
       if (!wrap.querySelector('.mr-item')) addItemRow(); // always keep ≥1 row
+      renderGroups();
       updateSubmit();
       autosave();
     });
@@ -411,24 +411,38 @@
     row._asmOnly = (source === 'assembly');
     row._mergedDesc = want;
     row._note = note || '';
-    markPull(row);
     return row;
   }
-  // Discrete pull-name label under a wire line ("Pull: LP-1 FEEDER").
-  function markPull(row) {
-    const el = row.querySelector('.mr-pull');
-    if (!el) return;
-    const note = (row._note || '').trim();
-    el.hidden = !note;
-    if (note) el.textContent = `Pull: ${note}`;
+  // Feeder conductor rows carry note "<pull> · Set <n>"; parse it back to drive
+  // the pull → set → conductor grouping headers in the items list.
+  function parsePull(note) {
+    const m = /^(.*?)\s*·\s*Set\s+(\d+)\s*$/.exec(note || '');
+    if (m) return { pull: m[1].trim(), set: parseInt(m[2], 10) };
+    const t = (note || '').trim();
+    return { pull: t || null, set: t ? 1 : null };
   }
-  // True when two descriptions are the SAME wire apart from the footage
-  // ("230FT - #2/0 XHHW CU BROWN" vs "250FT - …" → true), so a footage-only
-  // fix keeps the line's pull name.
-  function sameWireCut(a, b) {
-    const tail = (s) => { const m = /^\d+\s*FT\s*-\s*(.+)$/.exec(normDesc(s)); return m ? m[1] : null; };
-    const ta = tail(a);
-    return ta !== null && ta === tail(b);
+  // Inject pull/set group headers above feeder rows and indent the conductors,
+  // so the list reads: ⚡ Pull → Set N · <ft> ft → conductor rows. Pure display
+  // (headers are .mr-grp, never .mr-item), rebuilt on any structural change.
+  function renderGroups() {
+    const wrap = document.getElementById('mrItems');
+    if (!wrap) return;
+    [...wrap.querySelectorAll('.mr-grp')].forEach(h => h.remove());
+    let curPull = null, curSet = null;
+    for (const row of [...wrap.querySelectorAll('.mr-item')]) {
+      const { pull, set } = parsePull(row._note);
+      row.classList.toggle('mr-item-child', !!pull);
+      if (!pull) { curPull = null; curSet = null; continue; }
+      if (pull !== curPull) {
+        const h = document.createElement('div'); h.className = 'mr-grp mr-grp-pull'; h.textContent = '⚡ ' + pull;
+        wrap.insertBefore(h, row); curPull = pull; curSet = null;
+      }
+      if (set !== curSet) {
+        const ft = row.querySelector('.mr-qty').value;
+        const hs = document.createElement('div'); hs.className = 'mr-grp mr-grp-set'; hs.textContent = 'Set ' + set + (ft ? ' · ' + ft + ' ft' : '');
+        wrap.insertBefore(hs, row); curSet = set;
+      }
+    }
   }
   // Discrete "this line is a summed total" note on consolidated rows.
   function combinedText(asmOnly) { return asmOnly ? 'from multiple assemblies' : 'combined'; }
@@ -1074,8 +1088,12 @@
     if (wire.mode === 'feeder') {
       const ft = parseInt(wire.cutFt, 10);
       if (!ft || ft < 1) return [];
-      if (!(wire.sets >= 1)) return [];      // a typed 0/blank disables Add (no silent qty 1)
-      return colors.map(c => ({ desc: `${ft}FT - ${base} ${c}`, qty: wire.sets, note: wire.pull.trim() }));
+      if (!(wire.sets >= 1)) return [];      // a typed 0/blank disables Add (no silent default)
+      // One row PER PARALLEL SET, per color. Footage is the qty (not in the
+      // description); pull + set drive the grouping headers.
+      const out = [];
+      for (let s = 1; s <= wire.sets; s++) for (const c of colors) out.push({ desc: `${base} ${c}`, qty: ft, pull: wire.pull.trim(), set: s });
+      return out;
     }
     if (!(wire.spools >= 1)) return [];
     return colors.map(c => ({ desc: `${wire.spool}FT SPOOL - ${base} ${c}`, qty: wire.spools, note: '' }));
@@ -1090,9 +1108,22 @@
       el.innerHTML = `<p class="hint" style="text-align:left;margin:0">${!wire.size ? 'Pick a size.' : (!wire.colors.size ? 'Pick at least one color.' : (wire.mode === 'feeder' ? 'Enter the cut length and parallel sets.' : 'Enter spools per color.'))}</p>`;
       return;
     }
-    const pull = wire.mode === 'feeder' ? wire.pull.trim() : '';
+    if (wire.mode === 'feeder') {
+      const pull = wire.pull.trim();
+      const ft = parseInt(wire.cutFt, 10);
+      const colors = WIRE_SYSTEMS[wire.system].filter(c => wire.colors.has(c));
+      let html = `<p class="hint" style="text-align:left;margin:0 0 6px">${esc(pull || 'Feeder pull')} — ${wire.sets} set${wire.sets === 1 ? '' : 's'} × ${colors.length} conductor${colors.length === 1 ? '' : 's'}:</p>`;
+      for (let s = 1; s <= wire.sets; s++) {
+        html += `<div class="mr-prev-set">Set ${s} · ${ft} ft</div>` +
+          `<table class="mr-asm-tbl"><tbody>` +
+          colors.map(c => `<tr><td class="q">${ft}</td><td>${esc(`${wire.size} ${wire.type} ${wire.mat} ${c}`)}</td></tr>`).join('') +
+          `</tbody></table>`;
+      }
+      el.innerHTML = html;
+      return;
+    }
     const rows = lines.map(l => `<tr><td class="q">${l.qty}</td><td>${esc(l.desc)}</td></tr>`).join('');
-    el.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 6px">${pull ? `Pull "${esc(pull)}" — adds` : 'Adds'} ${lines.length} line${lines.length === 1 ? '' : 's'}:</p>` +
+    el.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 6px">Adds ${lines.length} line${lines.length === 1 ? '' : 's'}:</p>` +
       `<table class="mr-asm-tbl"><tbody>${rows}</tbody></table>`;
   }
   function addWire() {
@@ -1100,7 +1131,21 @@
     if (!lines.length) return;
     const rows = [...document.querySelectorAll('#mrItems .mr-item')];
     if (rows.length === 1 && !rows[0].querySelector('.mr-desc').value.trim()) rows[0].remove();
-    for (const l of lines) mergeItemRow(l.desc, l.qty, 'wire', l.note);
+    if (wire.mode === 'feeder') {
+      // Feeder cuts are distinct rows (never summed). Continue set numbering if
+      // this pull already exists, then group under pull/set headers.
+      const pull = lines[0].pull;
+      let maxSet = 0;
+      for (const r of document.querySelectorAll('#mrItems .mr-item')) { const p = parsePull(r._note); if (p.pull === pull && p.set > maxSet) maxSet = p.set; }
+      for (const l of lines) {
+        const row = addItemRow(l.desc, l.qty);
+        row._note = `${pull} · Set ${l.set + maxSet}`;
+        row._mergedDesc = normDesc(l.desc);
+      }
+      renderGroups();
+    } else {
+      for (const l of lines) mergeItemRow(l.desc, l.qty, 'wire', l.note);   // branch spools sum by color
+    }
     updateSubmit();
     closeWire();
     wire = null;   // completed — next open starts fresh at the mode chooser
@@ -1151,8 +1196,10 @@
       '.mr-combined{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
       '.mr-combined[hidden]{display:none}' +
       '.mr-combined-inline{color:var(--muted);font-style:italic;font-size:12px}' +
-      '.mr-pull{font-size:11px;color:var(--muted);font-style:italic;margin-top:-2px;padding-left:72px}' +
-      '.mr-pull[hidden]{display:none}' +
+      '.mr-grp-pull{font-weight:700;color:var(--text);font-size:14px;padding:10px 2px 2px;border-top:1px solid var(--border);margin-top:4px}' +
+      '.mr-grp-set{color:var(--muted);font-size:12px;padding:2px 2px 2px 14px}' +
+      '.mr-item-child{margin-left:12px}' +
+      '.mr-prev-set{font-size:12px;color:var(--muted);margin:8px 0 2px;font-weight:600}' +
       '.mr-opt-sub{display:block;font-size:12px;color:var(--muted);margin-top:2px}' +
       '.mr-wire-form{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:12px}' +
       '.mr-wire-form[hidden]{display:none}' +
@@ -1540,8 +1587,9 @@
         row._photos = it.photos.map(p => ({ name: p.name, file: p.file, url: URL.createObjectURL(p.file) }));
         renderItemThumbs(row);
       }
-      if (it) { row._adds = it.adds || 1; row._asmOnly = !!it.asmOnly; row._mergedDesc = normDesc(it.description || ''); row._note = it.note || ''; markCombined(row); markPull(row); }
+      if (it) { row._adds = it.adds || 1; row._asmOnly = !!it.asmOnly; row._mergedDesc = normDesc(it.description || ''); row._note = it.note || ''; markCombined(row); }
     }
+    renderGroups();   // rebuild feeder pull/set headers from restored notes
     document.getElementById('mrNeededBy').value = d.needed_by || '';
     document.getElementById('mrNote').value = d.note || '';
     urgency = d.urgency || 'normal';
