@@ -303,14 +303,25 @@
       updateSubmit();
       autosave();
     });
+    // Space (like Tab) jumps from the quantity box to the description.
+    row.querySelector('.mr-qty').addEventListener('keydown', (e) => {
+      if (e.key !== ' ' && e.code !== 'Space') return;
+      e.preventDefault();
+      row.querySelector('.mr-desc').focus();
+    });
     const descEl = row.querySelector('.mr-desc');
     // Enter in the description adds the next line and jumps to its (blank) qty —
-    // fast keyboard entry: qty → Tab → desc → Enter → next qty → …
+    // fast keyboard entry: qty → Space/Tab → desc → Enter → next qty → …
     descEl.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
+      // Blur FIRST so iOS commits any pending autocorrect into THIS field (it
+      // already holds that text). Focusing the new row synchronously makes iOS
+      // flush the buffer into the new row instead — which read as "the previous
+      // item duplicated onto the next line" in the field.
+      descEl.blur();
       const next = addItemRow(undefined, undefined, row);
-      next.querySelector('.mr-qty').focus();
+      setTimeout(() => next.querySelector('.mr-qty').focus(), 0);
       updateSubmit();
     });
     row.querySelector('.mr-item-photo').addEventListener('click', () => openPhotoSheet({ kind: 'item', row }));
