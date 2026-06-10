@@ -421,6 +421,18 @@
     const t = (note || '').trim();
     return { pull: t || null, set: t ? 1 : null };
   }
+  // A feeder added with no pull name would slip past the header logic (an empty
+  // pull reads as "no group" in renderGroups) and its conductors would render
+  // loose. Auto-assign "Pull N" so they still group — N is the next free number
+  // among existing auto-named pulls, so two unnamed adds don't merge together.
+  function nextPlaceholderPull() {
+    let max = 0;
+    for (const r of document.querySelectorAll('#mrItems .mr-item')) {
+      const m = /^Pull (\d+)$/.exec(parsePull(r._note).pull || '');
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `Pull ${max + 1}`;
+  }
   // Inject pull/set group headers above feeder rows and indent the conductors,
   // so the list reads: ⚡ Pull → Set N · <ft> ft → conductor rows. Pure display
   // (headers are .mr-grp, never .mr-item), rebuilt on any structural change.
@@ -965,9 +977,10 @@
       mode,                                    // 'feeder' | 'branch'
       system: '120/208',
       colors: new Set(WIRE_SYSTEMS['120/208']),
-      type: mode === 'feeder' ? 'XHHW' : 'THHN',
+      type: 'THHN',   // default to THHN CU for both feeder and branch; XHHW still one tap away
       mat: 'CU',
-      size: null,
+      size: null,                              // phase & neutral
+      groundSize: null,                        // EGC (green) — sized separately (NEC 250.122)
       pull: '', cutFt: '', sets: 1,            // feeder
       spool: 500, spools: 1                    // branch
     };
@@ -993,9 +1006,10 @@
            <button type="button" class="chip${wire.mat === 'CU' ? ' active' : ''}" data-wmat="CU">Copper</button>
            <button type="button" class="chip${wire.mat === 'AL' ? ' active' : ''}" data-wmat="AL">Aluminum</button></div></div>
        </div>` +
-      `<div class="field"><label>Size</label><div class="chip-row mr-wire-sizes" id="mrWireSizes"></div></div>` +
+      `<div class="field"><label>${wire.mode === 'feeder' ? 'Phase & neutral size' : 'Size'}</label><div class="chip-row mr-wire-sizes" id="mrWireSizes"></div></div>` +
       (wire.mode === 'feeder'
-        ? `<div class="field"><label for="mrWirePull">Pull name</label><input id="mrWirePull" type="text" placeholder="e.g. PANEL LP-1 FEEDER" autocomplete="off"></div>
+        ? `<div class="field"><label>Ground (green) size <span class="label-aside">— sized separately</span></label><div class="chip-row mr-wire-sizes" id="mrWireGround"></div></div>
+           <div class="field"><label for="mrWirePull">Pull name</label><input id="mrWirePull" type="text" placeholder="e.g. PANEL LP-1 FEEDER" autocomplete="off"></div>
            <div class="field mr-two-col">
              <div><label for="mrWireCut">Cut length (ft)</label><input id="mrWireCut" type="number" inputmode="numeric" min="1" placeholder="e.g. 230"></div>
              <div><label for="mrWireSets">Parallel sets</label><input id="mrWireSets" type="number" inputmode="numeric" min="1" value="1"></div>
@@ -1020,13 +1034,13 @@
       const c = e.target.closest('[data-wtype]'); if (!c) return;
       wire.type = c.dataset.wtype;
       [...f.querySelectorAll('#mrWireType .chip')].forEach(x => x.classList.toggle('active', x.dataset.wtype === wire.type));
-      renderWireSizes(); updateWirePreview();
+      renderWireSizes(); renderWireGroundSizes(); updateWirePreview();
     });
     f.querySelector('#mrWireMat').addEventListener('click', (e) => {
       const c = e.target.closest('[data-wmat]'); if (!c) return;
       wire.mat = c.dataset.wmat;
       [...f.querySelectorAll('#mrWireMat .chip')].forEach(x => x.classList.toggle('active', x.dataset.wmat === wire.mat));
-      renderWireSizes(); updateWirePreview();
+      renderWireSizes(); renderWireGroundSizes(); updateWirePreview();
     });
     if (wire.mode === 'feeder') {
       f.querySelector('#mrWirePull').addEventListener('input', (e) => { wire.pull = e.target.value; updateWirePreview(); });
@@ -1044,6 +1058,7 @@
     f.querySelector('#mrWireAdd').addEventListener('click', addWire);
     renderWireColors();
     renderWireSizes();
+    renderWireGroundSizes();
     updateWirePreview();
   }
 
@@ -1079,6 +1094,26 @@
       });
     }
   }
+  // Separate EGC (green) size picker — feeder only. Same catalog sizes; the
+  // ground is typically smaller (NEC 250.122) so it's chosen on its own.
+  function renderWireGroundSizes() {
+    const el = document.getElementById('mrWireGround');
+    if (!el) return;
+    const sizes = (wireIndex && wireIndex[wire.type + '|' + wire.mat]) || [];
+    if (wire.groundSize && !sizes.includes(wire.groundSize)) wire.groundSize = null;
+    el.innerHTML = sizes.length
+      ? sizes.map(s => `<button type="button" class="chip${wire.groundSize === s ? ' active' : ''}" data-wgnd="${esc(s)}">${esc(s)}</button>`).join('')
+      : '<p class="hint" style="text-align:left;margin:0">No catalog wire for this type/material.</p>';
+    if (!el._wired) {
+      el._wired = true;
+      el.addEventListener('click', (e) => {
+        const c = e.target.closest('[data-wgnd]'); if (!c) return;
+        wire.groundSize = c.dataset.wgnd;
+        [...el.querySelectorAll('.chip')].forEach(x => x.classList.toggle('active', x.dataset.wgnd === wire.groundSize));
+        updateWirePreview();
+      });
+    }
+  }
 
   // The lines this wizard adds — one per selected color, in system order.
   function wireLines() {
@@ -1089,10 +1124,16 @@
       const ft = parseInt(wire.cutFt, 10);
       if (!ft || ft < 1) return [];
       if (!(wire.sets >= 1)) return [];      // a typed 0/blank disables Add (no silent default)
+      if (colors.includes('GREEN') && !wire.groundSize) return [];   // EGC needs its own size
       // One row PER PARALLEL SET, per color. Footage is the qty (not in the
-      // description); pull + set drive the grouping headers.
+      // description); pull + set drive the grouping headers. Green uses the
+      // separate ground size; everything else uses the phase/neutral size.
       const out = [];
-      for (let s = 1; s <= wire.sets; s++) for (const c of colors) out.push({ desc: `${base} ${c}`, qty: ft, pull: wire.pull.trim(), set: s });
+      const pull = wire.pull.trim() || nextPlaceholderPull();   // blank name → auto "Pull N" so it still groups
+      for (let s = 1; s <= wire.sets; s++) for (const c of colors) {
+        const sz = (c === 'GREEN') ? wire.groundSize : wire.size;
+        out.push({ desc: `${sz} ${wire.type} ${wire.mat} ${c}`, qty: ft, pull, set: s });
+      }
       return out;
     }
     if (!(wire.spools >= 1)) return [];
@@ -1105,18 +1146,23 @@
     if (!el || !btn) return;
     btn.disabled = !lines.length;
     if (!lines.length) {
-      el.innerHTML = `<p class="hint" style="text-align:left;margin:0">${!wire.size ? 'Pick a size.' : (!wire.colors.size ? 'Pick at least one color.' : (wire.mode === 'feeder' ? 'Enter the cut length and parallel sets.' : 'Enter spools per color.'))}</p>`;
+      let hint;
+      if (!wire.size) hint = (wire.mode === 'feeder' ? 'Pick a phase & neutral size.' : 'Pick a size.');
+      else if (!wire.colors.size) hint = 'Pick at least one color.';
+      else if (wire.mode === 'feeder' && wire.colors.has('GREEN') && !wire.groundSize) hint = 'Pick a ground (green) size.';
+      else hint = (wire.mode === 'feeder' ? 'Enter the cut length and parallel sets.' : 'Enter spools per color.');
+      el.innerHTML = `<p class="hint" style="text-align:left;margin:0">${hint}</p>`;
       return;
     }
     if (wire.mode === 'feeder') {
-      const pull = wire.pull.trim();
+      const pull = lines[0].pull;   // already includes the auto "Pull N" placeholder when unnamed
       const ft = parseInt(wire.cutFt, 10);
       const colors = WIRE_SYSTEMS[wire.system].filter(c => wire.colors.has(c));
       let html = `<p class="hint" style="text-align:left;margin:0 0 6px">${esc(pull || 'Feeder pull')} — ${wire.sets} set${wire.sets === 1 ? '' : 's'} × ${colors.length} conductor${colors.length === 1 ? '' : 's'}:</p>`;
       for (let s = 1; s <= wire.sets; s++) {
         html += `<div class="mr-prev-set">Set ${s} · ${ft} ft</div>` +
           `<table class="mr-asm-tbl"><tbody>` +
-          colors.map(c => `<tr><td class="q">${ft}</td><td>${esc(`${wire.size} ${wire.type} ${wire.mat} ${c}`)}</td></tr>`).join('') +
+          colors.map(c => `<tr><td class="q">${ft}</td><td>${esc(`${(c === 'GREEN' ? wire.groundSize : wire.size)} ${wire.type} ${wire.mat} ${c}`)}</td></tr>`).join('') +
           `</tbody></table>`;
       }
       el.innerHTML = html;
