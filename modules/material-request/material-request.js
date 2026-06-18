@@ -747,6 +747,7 @@
         id: mrId('s'), sent_at: sentAt, jobNo: sJob, order_no: seq,
         requester: shell.job.current().me, name: orderName,
         needed_by: record.needed_by || '', urgency, note: record.note || '',
+        delivered: false,   // PWA-04: not confirmed in OneDrive until the outbox actually flushes
         generalPhotos: generalPhotoMeta, items: sentItems
       });
     } catch (err) { shell.log(`Sent-history save failed: ${err.message}`); }
@@ -759,8 +760,8 @@
     populateDraft(fresh);   // reset the form to the new empty list
 
     const status = document.getElementById('mrStatus');
-    status.style.color = '#3fb950';
-    status.textContent = '✓ Submitting to OneDrive…';
+    status.style.color = '#d29922';
+    status.textContent = '⏳ Queued — uploading to OneDrive…';
 
     // One press: send right away (uploads the whole outbox). If not signed in,
     // shell.sync.flush() redirects to Microsoft sign-in and auto-resumes on return.
@@ -1825,7 +1826,7 @@
       </label>`).join('');
     return `<div class="mr-sent-card" data-id="${esc(s.id)}">
       <button type="button" class="mr-sent-head" data-toggle="${esc(s.id)}">
-        <span class="mr-sent-title">${title}${rush}${allIn ? ' ✅' : ''}</span>
+        <span class="mr-sent-title">${title}${rush}${s.delivered === false ? ' <span style="color:#d29922;font-weight:600;font-size:.82em">⏳ uploading…</span>' : ''}${allIn ? ' ✅' : ''}</span>
         <span class="mr-sent-sub">${items.length} item${items.length === 1 ? '' : 's'} · ${recv}/${items.length} received${needBy}</span>
       </button>
       <div class="mr-sent-body" hidden>
@@ -1858,6 +1859,27 @@
     const titleEl = card && card.querySelector('.mr-sent-title');
     if (titleEl) { const base = titleEl.textContent.replace(' ✅', ''); titleEl.textContent = (s.items.length && recv === s.items.length) ? base + ' ✅' : base; }
   }
+
+  // PWA-04: an order isn't truly "sent" until its files actually reach OneDrive.
+  // onSubmit stamps the Sent-history entry delivered:false; when the outbox empties
+  // successfully (shell:flushed — fires even after a full-page sign-in redirect), flip
+  // pending entries to delivered and refresh the sheet if it's open. Registered once at
+  // module load so it also catches the post-redirect auto-resume.
+  document.addEventListener('shell:flushed', async () => {
+    try {
+      const all = await dbAll('sent');
+      let changed = false;
+      for (const s of all) {
+        if (s.delivered === false) {
+          s.delivered = true;
+          s.delivered_at = new Date().toISOString();
+          try { await dbPut('sent', s); changed = true; } catch (e) {}
+        }
+      }
+      const sheet = document.getElementById('mrSentSheet');
+      if (changed && sheet && !sheet.hidden) renderSent();
+    } catch (e) {}
+  });
 
   // ── Register ────────────────────────────────────────────────────────────
   shell.nav.register({

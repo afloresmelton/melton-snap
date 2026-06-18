@@ -50,24 +50,34 @@
     });
   }
 
-  // Re-encode through canvas to guarantee JPEG (handles HEIC + strips
-  // orientation surprises). Returns the original File untouched if it's
-  // already a JPEG.
+  // PWA-08: cap the long edge so multi-MB phone photos don't stall on jobsite
+  // cellular or exceed the Graph simple-upload (~4MB PUT) ceiling.
+  const MAX_DIM = 2048;
+
+  // Re-encode through canvas to guarantee JPEG (handles HEIC + strips orientation
+  // surprises) AND downscale to MAX_DIM. An already-JPEG that's within the cap is
+  // returned untouched (keeps its EXIF, avoids a needless re-encode).
   async function reencodeAsJpeg(file) {
-    if (file.type === 'image/jpeg') return file;
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
       i.onerror = () => reject(new Error('Could not decode image — HEIC may need Settings > Camera > Formats > Most Compatible'));
       i.src = URL.createObjectURL(file);
     });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
-    if (!blob) throw new Error('JPEG encode failed');
-    return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+    try {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+      if (file.type === 'image/jpeg' && scale === 1) return file;   // already JPEG + within cap → no work
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+      if (!blob) throw new Error('JPEG encode failed');
+      return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+    } finally {
+      URL.revokeObjectURL(img.src);
+    }
   }
 
   shell.capture = { pick, reencodeAsJpeg };

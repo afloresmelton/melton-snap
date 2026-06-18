@@ -281,7 +281,11 @@
     const clearBtn = document.getElementById('outboxClearBtn');
     if (upBtn) upBtn.addEventListener('click', () => flush()); // don't pass the event as opts
     if (shareBtn) shareBtn.addEventListener('click', shareFallback);
-    if (clearBtn) clearBtn.addEventListener('click', clear);
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      const n = state.items.length;
+      if (n && !confirm(`Discard ${n} pending upload${n === 1 ? '' : 's'}? They won't be sent to OneDrive.`)) return;
+      clear();
+    });
     await restore();
     render();
   }
