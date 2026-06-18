@@ -80,6 +80,9 @@
       <!-- Module #2 — Field Materials Request (stub; filled by its module) -->
       <section id="module-material-request" class="module-view" hidden></section>
 
+      <!-- Module #3 — Field Service Call Completion (stub; filled by its module) -->
+      <section id="module-service-calls" class="module-view" hidden></section>
+
       <!-- ── Shared outbox (any module's pending uploads) ─────────────── -->
       <section id="outboxTray" class="queue-tray" hidden>
         <div class="queue-head">
@@ -150,6 +153,7 @@
   <!-- Modules (register themselves with the nav) -->
   <script src="modules/photos/photos.js"></script>
   <script src="modules/material-request/material-request.js"></script>
+  <script src="modules/service-calls/service-calls.js"></script>
 
   <!-- Orchestrator -->
   <script src="shell/boot.js"></script>

@@ -2,7 +2,7 @@
 // Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
 // of one app.js. All are precached so the field hub launches offline.
 
-const CACHE_NAME = 'melton-snap-v56';
+const CACHE_NAME = 'melton-snap-v57';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,7 @@ const SHELL_ASSETS = [
   './shell/boot.js',
   './modules/photos/photos.js',
   './modules/material-request/material-request.js',
+  './modules/service-calls/service-calls.js',
   'https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js',
   'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js'
 ];
