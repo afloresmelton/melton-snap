@@ -59,23 +59,81 @@
   }
   function scId(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-  // ── Assigned SC list (optional: PM publishes job-data/.../assigned.json) ───
-  // If the file exists, populate a datalist so the tech can autocomplete the
-  // SC number. Gracefully absent — free-text entry always works.
+  // ── Assigned SC picker (optional: PM publishes job-data/.../assigned.json) ──
+  // Renders tap-to-select cards for this tech's assigned SCs.
+  // Gracefully absent — free-text entry always works as a fallback.
   async function loadAssigned() {
     const cfg = shell.job.current();
     if (!cfg) return;
     const base = new URL('./', location.href).href;
     try {
-      const res = await fetch(`${base}job-data/J${esc(cfg.job)}/service-calls/assigned.json`);
+      const res = await fetch(
+        `${base}job-data/J${esc(cfg.job)}/service-calls/assigned.json`,
+        { cache: 'no-store' }
+      );
       if (!res.ok) return;
       const list = await res.json();
-      const dl = document.getElementById('scNumberList');
-      if (!dl) return;
-      dl.innerHTML = list.map(c =>
-        `<option value="${esc(c.scNumber)}">${esc(c.scNumber)}${c.description ? ' — ' + U.escapeHtml(c.description) : ''}</option>`
+      if (!Array.isArray(list) || !list.length) return;
+
+      // Filter to only this tech's assignments
+      const me = (cfg.me || '').trim().toLowerCase();
+      const mine = me
+        ? list.filter(c => (c.assignedTech || '').trim().toLowerCase() === me)
+        : list;
+      if (!mine.length) return;
+
+      // Render cards
+      const picker = document.getElementById('scAssignedPicker');
+      if (!picker) return;
+      picker.innerHTML = mine.map((c, i) =>
+        `<button type="button" class="sc-assign-card" data-idx="${i}">` +
+          `<div class="sc-assign-num">${U.escapeHtml(c.scNumber || '—')}</div>` +
+          (c.problemDescription
+            ? `<div class="sc-assign-desc">${U.escapeHtml(c.problemDescription)}</div>` : '') +
+          (c.locationArea
+            ? `<div class="sc-assign-meta">📍 ${U.escapeHtml(c.locationArea)}</div>` : '') +
+          (c.scheduledDate
+            ? `<div class="sc-assign-meta">📅 ${U.escapeHtml(c.scheduledDate)}` +
+              `${c.scheduledTime ? ' · ' + U.escapeHtml(c.scheduledTime) : ''}</div>` : '') +
+        `</button>`
       ).join('');
-    } catch (e) { /* no config — silent */ }
+
+      // Wire card taps
+      picker.querySelectorAll('.sc-assign-card').forEach((btn, i) => {
+        btn.addEventListener('click', () => {
+          const sc = mine[i];
+          picker.querySelectorAll('.sc-assign-card').forEach(b => b.classList.remove('sc-assign-active'));
+          btn.classList.add('sc-assign-active');
+
+          const scInput = document.getElementById('scNumber');
+          if (scInput) {
+            scInput.value = sc.scNumber || '';
+            scInput.dispatchEvent(new Event('input'));
+          }
+
+          const preview = document.getElementById('scScopePreview');
+          if (preview) {
+            if (sc.scopeOfWork) {
+              preview.textContent = sc.scopeOfWork;
+              preview.hidden = false;
+            } else {
+              preview.hidden = true;
+            }
+          }
+
+          // Scroll to date field after picker
+          const dateField = document.getElementById('scDate');
+          if (dateField) setTimeout(() => dateField.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+        });
+      });
+
+      // Show picker section
+      const pickerSection = document.getElementById('scPickerSection');
+      if (pickerSection) pickerSection.hidden = false;
+
+      // Auto-select when only one assignment
+      if (mine.length === 1) picker.querySelector('.sc-assign-card').click();
+    } catch (e) { /* no assignments file — silent, free-text stays */ }
   }
 
   // ── Form helpers ───────────────────────────────────────────────────────────
@@ -357,11 +415,16 @@
       '<button type="button" id="scHistory" class="sc-tool-btn">🕓 Submitted</button>',
       '</section>',
 
+      '<section id="scPickerSection" class="field" hidden>',
+      '<label>Your Assigned Service Calls</label>',
+      '<div id="scAssignedPicker" class="sc-assign-picker"></div>',
+      '</section>',
+
       '<section class="field">',
       '<label for="scNumber">SC Number <span class="sc-req">required</span></label>',
-      '<input id="scNumber" type="text" list="scNumberList" placeholder="SC-2026-XXXX"',
+      '<input id="scNumber" type="text" placeholder="SC-2026-XXXX"',
       ' autocomplete="off" autocorrect="off" autocapitalize="characters">',
-      '<datalist id="scNumberList"></datalist>',
+      '<div id="scScopePreview" class="sc-scope-preview" hidden></div>',
       '</section>',
 
       '<section class="field">',
@@ -536,6 +599,28 @@
       .sc-check-label input[type=checkbox] {
         width: 18px; height: 18px; flex-shrink: 0; cursor: pointer;
         accent-color: #3b82f6;
+      }
+
+      /* Assigned SC picker cards */
+      .sc-assign-picker { display: flex; flex-direction: column; gap: 8px; }
+      .sc-assign-card {
+        width: 100%; text-align: left; padding: 12px 14px;
+        background: var(--panel, #1a2535); color: var(--text, #e2e8f0);
+        border: 1px solid var(--border, #2d3748); border-radius: 10px;
+        font-family: inherit; cursor: pointer;
+      }
+      .sc-assign-card:active { opacity: 0.75; }
+      .sc-assign-card.sc-assign-active {
+        border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.35);
+      }
+      .sc-assign-num { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+      .sc-assign-desc { font-size: 13px; color: var(--muted, #94a3b8); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sc-assign-meta { font-size: 12px; color: var(--muted, #6b7280); }
+      .sc-scope-preview {
+        margin-top: 8px; padding: 10px 12px;
+        background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25);
+        border-radius: 8px; font-size: 13px; color: var(--muted, #94a3b8);
+        white-space: pre-wrap; line-height: 1.5;
       }
 
       /* After photos */
