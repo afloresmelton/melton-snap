@@ -134,9 +134,7 @@
   #formControls .print-btn { font: inherit; cursor: pointer; background: #1d6e56; color: #fff;
                    border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
   #formControls .print-btn:hover { background: #155a45; }
-  #formControls .email-btn { font: inherit; cursor: pointer; background: #185fa5; color: #fff;
-                   border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
-  #formControls .email-btn:hover { background: #124c84; }
+  #formControls .fc-hint { font-size: 9pt; color: #777; margin-right: 14px; }
 
   @media screen {
     html { background: #f4f4f4; }
@@ -163,8 +161,8 @@
 <body>
 
   <div id="formControls">
-    <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
-    <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email PDF</button>
+    <button type="button" id="emailTicketBtn" class="print-btn">&#128424;&nbsp; Print / Save / Email PDF</button>
+    <span class="fc-hint">iPad: Print &rarr; Share &rarr; Mail to email the PDF.</span>
     <label><input type="checkbox" id="toggleNotes" checked>
       Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
   </div>
@@ -341,8 +339,6 @@
   (function(){
     var btn = document.getElementById('emailTicketBtn');
     if (!btn) return;
-    // Attachment filename + email subject, derived from the form's identifying
-    // fields (data-tkt). Edit these two builders to change the nomenclature.
     function fieldVal(key){ var el = document.querySelector('[data-tkt="' + key + '"]'); return el ? (el.value || '').trim() : ''; }
     function clean(s){ return (s || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').replace(/-{2,}/g, '-').trim(); }
     function ticketName(){
@@ -350,71 +346,9 @@
       var parts = ['Service Ticket']; if (who) parts.push(who); if (dt) parts.push(dt);
       return parts.join(' - ');
     }
-    function ticketSubject(){
-      var jn = fieldVal('jobName'), jno = fieldVal('jobNo'), dt = fieldVal('date');
-      var s = 'Service Ticket';
-      if (jn) s += ' - ' + jn;
-      if (jno) s += ' (Job ' + jno + ')';
-      if (dt) s += ' - ' + dt;
-      return s;
-    }
-    function loadScript(src){
-      return new Promise(function(res, rej){
-        var s = document.createElement('script'); s.src = src;
-        s.onload = res; s.onerror = function(){ rej(new Error('load failed: ' + src)); };
-        document.head.appendChild(s);
-      });
-    }
-    async function ensureLibs(){
-      if (!window.html2canvas) await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
-      if (!window.jspdf)       await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js');
-    }
-    // html2canvas renders a CLONE — capture at full size (ignore the screen
-    // scale-to-fit), drop screen-only chrome/tints, and render checked boxes as a
-    // solid fill since rasterizers can't draw the CSS checkmark.
-    function cleanClone(doc){
-      doc.documentElement.style.setProperty('--fit', '1');
-      var fc = doc.getElementById('formControls'); if (fc && fc.parentNode) fc.parentNode.removeChild(fc);
-      var st = doc.createElement('style');
-      st.textContent = 'input,textarea{background:transparent !important;}' +
-        '.page{box-shadow:none !important;margin:0 !important;}' +
-        '.cb:checked{background:#16324f !important;} .cb:checked::after{display:none !important;}';
-      doc.head.appendChild(st);
-    }
-    async function makePdf(){
-      await ensureLibs();
-      var JsPDF = window.jspdf.jsPDF;
-      var pdf = new JsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
-      var pages = Array.prototype.slice.call(document.querySelectorAll('.page'))
-        .filter(function(p){ return getComputedStyle(p).display !== 'none'; });
-      for (var i = 0; i < pages.length; i++) {
-        var canvas = await window.html2canvas(pages[i], {
-          scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 816, onclone: cleanClone
-        });
-        if (i > 0) pdf.addPage('letter', 'portrait');
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 8.5, 11);
-      }
-      return pdf.output('blob');
-    }
-    btn.addEventListener('click', async function(){
-      var label = btn.innerHTML; btn.disabled = true; btn.textContent = 'Generating PDF…';
-      try {
-        var blob = await makePdf();
-        var name = ticketName() + '.pdf';
-        var file = new File([blob], name, { type: 'application/pdf' });
-        try {
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: ticketSubject(), text: 'Completed Service Ticket attached.' });
-            return;
-          }
-        } catch (e) { if (e && e.name === 'AbortError') return; }
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a'); a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-      } catch (e) {
-        alert('Could not build the PDF (' + (e && e.message ? e.message : e) + ').\nUse "Print / Save as PDF" instead.');
-      } finally { btn.disabled = false; btn.innerHTML = label; }
+    btn.addEventListener('click', function(){
+      try { document.title = ticketName(); } catch (e) {}
+      window.print();
     });
   })();
   </script>
