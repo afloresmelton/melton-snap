@@ -119,6 +119,10 @@
   .sig-clear { position: absolute; top: 1px; right: 3px; z-index: 2; font: inherit; font-size: 7.5pt;
                 color: #777; background: rgba(255,255,255,0.85); border: 1px solid #ccc;
                 border-radius: 4px; padding: 0 5px; cursor: pointer; }
+  .sig-stamp { position: absolute; right: 4px; bottom: 13px; z-index: 1; pointer-events: none;
+                font-size: 6.5pt; color: #444; background: rgba(255,255,255,0.82);
+                border: 1px solid #bbb; border-radius: 3px; padding: 0 4px; }
+  .sig-stamp[hidden] { display: none; }
 
   /* page 2 material table */
   .gap { height: 8px; }
@@ -229,7 +233,7 @@
 
     <table class="grid sign">
       <tr>
-        <td class="sigcell sigpad-cell"><canvas class="sigpad"></canvas><button type="button" class="sig-clear">Clear</button><div class="siglbl">Customer Signature</div></td>
+        <td class="sigcell sigpad-cell"><canvas class="sigpad"></canvas><button type="button" class="sig-clear">Clear</button><div class="sig-stamp" hidden></div><div class="siglbl">Customer Signature</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Print Name</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Date</div></td>
       </tr>
@@ -501,6 +505,13 @@
     if (!cv) return;
     var ctx = cv.getContext('2d');
     var drawing = false, last = null;
+    var stamp = document.querySelector('.sig-stamp');
+    function nowStamp(){
+      var d = new Date();
+      var mm = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
+      var h = d.getHours(), ap = h < 12 ? 'AM' : 'PM', h12 = (h % 12) || 12, mi = ('0' + d.getMinutes()).slice(-2);
+      return 'Signed ' + mm + '/' + dd + '/' + d.getFullYear() + '  ' + h12 + ':' + mi + ' ' + ap;
+    }
     function size(){
       var r = cv.getBoundingClientRect();
       if (!r.width || !r.height) return;
@@ -515,12 +526,12 @@
       var r = cv.getBoundingClientRect();
       return { x: (e.clientX - r.left) / r.width * cv.width, y: (e.clientY - r.top) / r.height * cv.height };
     }
-    cv.addEventListener('pointerdown', function(e){ drawing = true; last = pos(e); try { cv.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
+    cv.addEventListener('pointerdown', function(e){ drawing = true; last = pos(e); if (stamp && stamp.hidden) { stamp.textContent = nowStamp(); stamp.hidden = false; } try { cv.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
     cv.addEventListener('pointermove', function(e){ if (!drawing) return; var p = pos(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; e.preventDefault(); });
     cv.addEventListener('pointerup', function(){ drawing = false; });
     cv.addEventListener('pointercancel', function(){ drawing = false; });
     var clr = document.querySelector('.sig-clear');
-    if (clr) clr.addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); });
+    if (clr) clr.addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); if (stamp) { stamp.hidden = true; stamp.textContent = ''; } });
     size();
     window.addEventListener('resize', function(){ setTimeout(size, 100); });
   })();
