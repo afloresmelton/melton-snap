@@ -111,18 +111,33 @@
   .sign td.sigcell:nth-child(1) { width: 48%; }
   .sign td.sigcell:nth-child(2) { width: 32%; }
   .siglbl { font-size: 8pt; font-weight: bold; color: #555; text-transform: uppercase; }
-  /* customer signature pad (finger / stylus); the cell fills with a canvas, the
-     label floats at the bottom, a Clear button sits top-right (screen-only). */
-  .sigpad-cell { position: relative; padding: 0; }
-  .sigpad { position: absolute; left: 0; top: 0; width: 100%; height: 100%; touch-action: none; }
+  /* customer signature: the cell is a tap target showing the captured signature
+     (an <img>) or a sign-prompt hint; the actual signing happens in a modal so
+     accidental swipes on the form can't alter it. */
+  .sigpad-cell { position: relative; padding: 0; cursor: pointer; }
+  .sig-img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; }
+  .sig-img[hidden] { display: none; }
+  .sig-hint { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+               color: #aaa; font-size: 8pt; font-style: italic; pointer-events: none; }
   .sigpad-cell .siglbl { position: absolute; left: 5px; bottom: 2px; pointer-events: none; }
-  .sig-clear { position: absolute; top: 1px; right: 3px; z-index: 2; font: inherit; font-size: 7.5pt;
-                color: #777; background: rgba(255,255,255,0.85); border: 1px solid #ccc;
-                border-radius: 4px; padding: 0 5px; cursor: pointer; }
   .sig-stamp { position: absolute; right: 4px; bottom: 13px; z-index: 1; pointer-events: none;
                 font-size: 6.5pt; color: #444; background: rgba(255,255,255,0.82);
                 border: 1px solid #bbb; border-radius: 3px; padding: 0 4px; }
   .sig-stamp[hidden] { display: none; }
+  /* the signing window (modal). screen-only; removed from export, hidden in print. */
+  .sig-modal { position: absolute; left: 0; top: 0; width: 100%; min-height: 100%; z-index: 1000;
+                background: rgba(0, 0, 0, 0.5); }
+  .sig-modal[hidden] { display: none; }
+  .sig-modal-card { position: absolute; left: 50%; transform: translateX(-50%); width: 92%; max-width: 6.5in;
+                     background: #fff; border-radius: 10px; box-shadow: 0 10px 50px rgba(0,0,0,0.5); padding: 14px; }
+  .sig-modal-head { font-size: 11pt; font-weight: bold; margin-bottom: 10px; color: #222; }
+  .sig-modal-pad { display: block; width: 100%; height: 2.4in; border: 1px dashed #999; border-radius: 6px;
+                    background: #fff; touch-action: none; }
+  .sig-modal-actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+  .sigm-spacer { flex: 1; }
+  .sigm-btn { font: inherit; font-size: 11pt; padding: 8px 16px; border: 1px solid #bbb; border-radius: 6px;
+               background: #f4f4f4; color: #222; cursor: pointer; }
+  .sigm-primary { background: #1d6e56; color: #fff; border-color: #1d6e56; }
 
   /* page 2 material table */
   .gap { height: 8px; }
@@ -167,7 +182,7 @@
   @media print {
     body { background: #fff; }
     #formControls { display: none !important; }
-    .sig-clear { display: none !important; }
+    .sig-hint, #sigModal { display: none !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
@@ -233,7 +248,7 @@
 
     <table class="grid sign">
       <tr>
-        <td class="sigcell sigpad-cell"><canvas class="sigpad"></canvas><button type="button" class="sig-clear">Clear</button><div class="sig-stamp" hidden></div><div class="siglbl">Customer Signature</div></td>
+        <td class="sigcell sigpad-cell" id="sigCell"><img class="sig-img" alt="signature" hidden><span class="sig-hint">Tap to sign</span><div class="sig-stamp" hidden></div><div class="siglbl">Customer Signature</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Print Name</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Date</div></td>
       </tr>
@@ -319,6 +334,19 @@
   </section>
 </form>
 
+  <div id="sigModal" class="sig-modal" hidden>
+    <div class="sig-modal-card">
+      <div class="sig-modal-head">Customer Signature &mdash; sign below</div>
+      <canvas id="sigModalPad" class="sig-modal-pad"></canvas>
+      <div class="sig-modal-actions">
+        <button type="button" id="sigModalClear" class="sigm-btn">Clear</button>
+        <span class="sigm-spacer"></span>
+        <button type="button" id="sigModalCancel" class="sigm-btn">Cancel</button>
+        <button type="button" id="sigModalDone" class="sigm-btn sigm-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script>
   (function(){
     var cb = document.getElementById('toggleNotes');
@@ -381,16 +409,11 @@
         else c.setAttribute('value', el.value);
       }
       var fc = clone.querySelector('#formControls'); if (fc) fc.parentNode.removeChild(fc);
-      // signature: a cloned <canvas> is blank — swap in an <img> of the drawing
-      var liveSig = document.querySelector('canvas.sigpad'), cloneSig = clone.querySelector('canvas.sigpad');
-      if (liveSig && cloneSig && cloneSig.parentNode) {
-        var sigImg = document.createElement('img');
-        sigImg.src = liveSig.toDataURL('image/png');
-        sigImg.className = 'sigpad';
-        sigImg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;';
-        cloneSig.parentNode.replaceChild(sigImg, cloneSig);
-      }
-      var sclr = clone.querySelectorAll('.sig-clear'); for (var s = 0; s < sclr.length; s++) sclr[s].parentNode.removeChild(sclr[s]);
+      // signature: the captured signature is already a baked <img> in the cell, so
+      // it carries over on its own. Just drop the signing modal + the "Tap to sign"
+      // hint (screen-only interaction chrome).
+      var sm = clone.querySelector('#sigModal'); if (sm) sm.parentNode.removeChild(sm);
+      var sh = clone.querySelectorAll('.sig-hint'); for (var s = 0; s < sh.length; s++) sh[s].parentNode.removeChild(sh[s]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
       return '<!doctype html>\n' + clone.outerHTML;
     }
@@ -501,39 +524,74 @@
 
   <script>
   (function(){
-    var cv = document.querySelector('canvas.sigpad');
-    if (!cv) return;
-    var ctx = cv.getContext('2d');
-    var drawing = false, last = null;
-    var stamp = document.querySelector('.sig-stamp');
+    var cell  = document.getElementById('sigCell');
+    var modal = document.getElementById('sigModal');
+    var cv    = document.getElementById('sigModalPad');
+    if (!cell || !modal || !cv) return;
+    var img   = cell.querySelector('.sig-img');
+    var hint  = cell.querySelector('.sig-hint');
+    var stamp = cell.querySelector('.sig-stamp');
+    var card  = modal.querySelector('.sig-modal-card');
+    var ctx   = cv.getContext('2d');
+    var sigData = null, drawing = false, last = null, dirty = false;
+
     function nowStamp(){
       var d = new Date();
       var mm = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
       var h = d.getHours(), ap = h < 12 ? 'AM' : 'PM', h12 = (h % 12) || 12, mi = ('0' + d.getMinutes()).slice(-2);
       return 'Signed ' + mm + '/' + dd + '/' + d.getFullYear() + '  ' + h12 + ':' + mi + ' ' + ap;
     }
-    function size(){
+    function sizeCanvas(){
       var r = cv.getBoundingClientRect();
       if (!r.width || !r.height) return;
       var dpr = window.devicePixelRatio || 1;
-      var prev = (cv.width && cv.height) ? cv.toDataURL() : null;
       cv.width = Math.round(r.width * dpr);
       cv.height = Math.round(r.height * dpr);
-      ctx.lineWidth = 1.8 * dpr; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
-      if (prev) { var im = new Image(); im.onload = function(){ ctx.drawImage(im, 0, 0, cv.width, cv.height); }; im.src = prev; }
+      ctx.lineWidth = 2.2 * dpr; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
     }
     function pos(e){
       var r = cv.getBoundingClientRect();
       return { x: (e.clientX - r.left) / r.width * cv.width, y: (e.clientY - r.top) / r.height * cv.height };
     }
-    cv.addEventListener('pointerdown', function(e){ drawing = true; last = pos(e); if (stamp && stamp.hidden) { stamp.textContent = nowStamp(); stamp.hidden = false; } try { cv.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
+    function isEmpty(){
+      var d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      for (var i = 3; i < d.length; i += 4) { if (d[i] > 8) return false; }
+      return true;
+    }
+    function open(){
+      modal.hidden = false;
+      sizeCanvas();
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      dirty = false;
+      if (sigData) { var im = new Image(); im.onload = function(){ ctx.drawImage(im, 0, 0, cv.width, cv.height); }; im.src = sigData; }
+      // anchor the window to the tapped cell and scroll it into view (works in the
+      // PWA iframe where position:fixed would land at the wrong place).
+      var top = cell.getBoundingClientRect().top + (window.pageYOffset || 0);
+      card.style.top = Math.max(8, top - 30) + 'px';
+      setTimeout(function(){ card.scrollIntoView({ block: 'center' }); }, 0);
+    }
+    function close(){ modal.hidden = true; }
+    function apply(){
+      if (dirty) {
+        if (isEmpty()) {
+          sigData = null; img.removeAttribute('src'); img.hidden = true;
+          hint.hidden = false; stamp.hidden = true; stamp.textContent = '';
+        } else {
+          sigData = cv.toDataURL('image/png'); img.src = sigData; img.hidden = false;
+          hint.hidden = true; stamp.textContent = nowStamp(); stamp.hidden = false;
+        }
+      }
+      close();
+    }
+
+    cell.addEventListener('click', open);
+    cv.addEventListener('pointerdown', function(e){ drawing = true; last = pos(e); dirty = true; try { cv.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
     cv.addEventListener('pointermove', function(e){ if (!drawing) return; var p = pos(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; e.preventDefault(); });
     cv.addEventListener('pointerup', function(){ drawing = false; });
     cv.addEventListener('pointercancel', function(){ drawing = false; });
-    var clr = document.querySelector('.sig-clear');
-    if (clr) clr.addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); if (stamp) { stamp.hidden = true; stamp.textContent = ''; } });
-    size();
-    window.addEventListener('resize', function(){ setTimeout(size, 100); });
+    document.getElementById('sigModalClear').addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); dirty = true; });
+    document.getElementById('sigModalCancel').addEventListener('click', close);
+    document.getElementById('sigModalDone').addEventListener('click', apply);
   })();
   </script>
 </body>
