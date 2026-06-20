@@ -401,5 +401,24 @@
     window.addEventListener('orientationchange', function(){ setTimeout(fit, 200); });
   })();
   </script>
+
+  <script>
+  (function(){
+    var groups = {};
+    document.querySelectorAll('input[data-tkt]').forEach(function(el){
+      var k = el.getAttribute('data-tkt');
+      (groups[k] = groups[k] || []).push(el);
+    });
+    Object.keys(groups).forEach(function(k){
+      var els = groups[k];
+      if (els.length < 2) return;          // only mirror fields that actually repeat
+      els.forEach(function(src){
+        src.addEventListener('input', function(){
+          els.forEach(function(dst){ if (dst !== src && dst.value !== src.value) dst.value = src.value; });
+        });
+      });
+    });
+  })();
+  </script>
 </body>
 </html>
