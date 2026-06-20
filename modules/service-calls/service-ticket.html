@@ -158,6 +158,15 @@
                    font-size: 10pt; color: #444; background: #fff8e1; border: 1px solid #e6c200;
                    border-radius: 6px; padding: 9px 13px; }
   #formControls input { vertical-align: -1px; margin-right: 6px; }
+  #formControls .fc-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  #formControls .fc-drafts { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #e6c200; }
+  #formControls .fc-dlabel { font-weight: bold; }
+  #formControls .fc-select { font: inherit; padding: 4px 6px; border: 1px solid #bbb; border-radius: 5px;
+                   min-width: 220px; max-width: 58%; background: #fff; margin-right: 0; vertical-align: 0; }
+  #formControls .fc-mini { font: inherit; cursor: pointer; background: #fff; color: #222;
+                   border: 1px solid #bbb; border-radius: 5px; padding: 4px 10px; }
+  #formControls .fc-mini:hover { background: #f0f0f0; }
+  #formControls .fc-status { font-size: 9pt; color: #2a7d2a; min-width: 50px; }
   #formControls .print-btn { font: inherit; cursor: pointer; background: #1d6e56; color: #fff;
                    border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
   #formControls .print-btn:hover { background: #155a45; }
@@ -192,10 +201,19 @@
 <body>
 
   <div id="formControls">
-    <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
-    <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email Ticket</button>
-    <label><input type="checkbox" id="toggleNotes" checked>
-      Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
+    <div class="fc-row fc-drafts">
+      <span class="fc-dlabel">Pending&nbsp;Tickets:</span>
+      <select id="draftSelect" class="fc-select" title="Switch between saved tickets"></select>
+      <button type="button" id="newDraftBtn" class="fc-mini">&#65291;&nbsp;New Ticket</button>
+      <button type="button" id="delDraftBtn" class="fc-mini" title="Delete this ticket">&#128465;</button>
+      <span id="saveStatus" class="fc-status"></span>
+    </div>
+    <div class="fc-row fc-actions">
+      <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
+      <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email Ticket</button>
+      <label><input type="checkbox" id="toggleNotes" checked>
+        Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
+    </div>
   </div>
 <form id="serviceTicket" autocomplete="off" onsubmit="return false">
 
@@ -496,6 +514,7 @@
       inp.addEventListener('input', recompute);
     });
     recompute();
+    (window.ST = window.ST || {}).recomputeHours = recompute;
   })();
   </script>
 
@@ -588,6 +607,7 @@
         }
       }
       close();
+      document.dispatchEvent(new Event('st:dirty'));   // tell the draft manager to auto-save
     }
 
     cell.addEventListener('click', open);
@@ -598,6 +618,137 @@
     document.getElementById('sigModalClear').addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); dirty = true; });
     document.getElementById('sigModalCancel').addEventListener('click', close);
     document.getElementById('sigModalDone').addEventListener('click', apply);
+
+    // expose signature get/set so the draft manager can serialize/restore it
+    // (the canvas state lives in this closure, so a draft can't just read the DOM)
+    window.ST = window.ST || {};
+    window.ST.getSig = function(){ return { sig: sigData, stamp: stamp.textContent }; };
+    window.ST.setSig = function(s, st){
+      dirty = false;
+      if (s) { sigData = s; img.src = s; img.hidden = false; hint.hidden = true; stamp.textContent = st || ''; stamp.hidden = !st; }
+      else { sigData = null; img.removeAttribute('src'); img.hidden = true; hint.hidden = false; stamp.textContent = ''; stamp.hidden = true; }
+    };
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var sel  = document.getElementById('draftSelect');
+    var form = document.getElementById('serviceTicket');
+    if (!sel || !form) return;
+    var newBtn  = document.getElementById('newDraftBtn');
+    var delBtn  = document.getElementById('delDraftBtn');
+    var status  = document.getElementById('saveStatus');
+    var emailBtn = document.getElementById('emailTicketBtn');
+    window.ST = window.ST || {};
+
+    var IDX = 'mh:st:index', CUR = 'mh:st:current', PFX = 'mh:st:d:';
+    var current = null, saveTimer = null;
+
+    function ls(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+    function lss(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+    function lsd(k){ try { localStorage.removeItem(k); } catch(e){} }
+    function genId(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+    function inputs(){ return form.querySelectorAll('input:not([type=checkbox])'); }
+    function checks(){ return form.querySelectorAll('input[type=checkbox]'); }
+    function areas(){ return form.querySelectorAll('textarea'); }
+    function fieldVal(k){ var e = form.querySelector('[data-tkt="' + k + '"]'); return e ? e.value.trim() : ''; }
+    function labelFor(){ return fieldVal('jobName') || fieldVal('jobNo') || 'Untitled ticket'; }
+
+    function relTime(t){
+      var s = Math.max(0, (Date.now() - t) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + ' min ago';
+      if (s < 86400) return Math.floor(s / 3600) + ' hr ago';
+      var d = Math.floor(s / 86400); return d === 1 ? 'yesterday' : d + ' days ago';
+    }
+    function getIndex(){ try { return JSON.parse(ls(IDX)) || []; } catch(e){ return []; } }
+    function setIndex(a){ lss(IDX, JSON.stringify(a)); }
+    function todayStr(){ var d = new Date(); return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + d.getFullYear(); }
+
+    function serialize(){
+      var s = window.ST.getSig ? window.ST.getSig() : { sig: null, stamp: '' };
+      return {
+        inputs: [].map.call(inputs(), function(e){ return e.value; }),
+        checks: [].map.call(checks(), function(e){ return e.checked; }),
+        areas:  [].map.call(areas(),  function(e){ return e.value; }),
+        sig: s.sig || null, stamp: s.stamp || ''
+      };
+    }
+    function restore(d){
+      if (!d) return;
+      var I = inputs(); (d.inputs || []).forEach(function(v, i){ if (I[i]) I[i].value = v; });
+      var C = checks(); (d.checks || []).forEach(function(v, i){ if (C[i]) C[i].checked = v; });
+      var A = areas();  (d.areas  || []).forEach(function(v, i){ if (A[i]) A[i].value = v; });
+      if (window.ST.setSig) window.ST.setSig(d.sig || null, d.stamp || '');
+      if (window.ST.recomputeHours) window.ST.recomputeHours();
+      form.querySelectorAll('input.pin').forEach(function(e){ e.dispatchEvent(new Event('input')); });
+    }
+    function clearForm(){
+      [].forEach.call(inputs(), function(e){ e.value = ''; });
+      [].forEach.call(checks(), function(e){ e.checked = false; });
+      [].forEach.call(areas(),  function(e){ e.value = ''; });
+      if (window.ST.setSig) window.ST.setSig(null, '');
+      var dEl = form.querySelector('[data-tkt="date"]'); if (dEl) dEl.value = todayStr();
+      if (window.ST.recomputeHours) window.ST.recomputeHours();
+    }
+    function flash(t){ if (status) status.textContent = t; }
+
+    function refreshSelect(){
+      var idx = getIndex();
+      sel.innerHTML = '';
+      if (!idx.length) { var z = document.createElement('option'); z.textContent = '(no saved tickets)'; sel.appendChild(z); return; }
+      idx.forEach(function(m){
+        var o = document.createElement('option');
+        o.value = m.id;
+        o.textContent = (m.sent ? '✓ ' : '') + m.label + '  —  ' + relTime(m.savedAt);
+        if (m.id === current) o.selected = true;
+        sel.appendChild(o);
+      });
+    }
+    function saveNow(){
+      if (!current) return;
+      lss(PFX + current, JSON.stringify(serialize()));
+      var idx = getIndex(), found = false;
+      for (var i = 0; i < idx.length; i++){ if (idx[i].id === current){ idx[i].label = labelFor(); idx[i].savedAt = Date.now(); found = true; break; } }
+      if (!found) idx.push({ id: current, label: labelFor(), savedAt: Date.now(), sent: false });
+      idx.sort(function(a, b){ return b.savedAt - a.savedAt; });
+      setIndex(idx); lss(CUR, current); refreshSelect(); flash('Saved');
+    }
+    function scheduleSave(){ flash('Saving…'); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 600); }
+    function loadDraft(id){
+      var raw = ls(PFX + id); if (!raw) return false;
+      try { restore(JSON.parse(raw)); } catch(e){ return false; }
+      current = id; lss(CUR, id); refreshSelect(); flash('Saved'); return true;
+    }
+    function newDraft(){ saveNow(); current = genId(); clearForm(); saveNow(); }
+    function switchTo(id){ if (!id || id === current) return; saveNow(); loadDraft(id); }
+    function deleteCurrent(){
+      if (!current) return;
+      var idx = getIndex().filter(function(m){ return m.id !== current; });
+      setIndex(idx); lsd(PFX + current);
+      if (idx.length) { current = idx[0].id; loadDraft(current); }
+      else { current = genId(); clearForm(); saveNow(); }
+    }
+
+    form.addEventListener('input', scheduleSave);
+    form.addEventListener('change', scheduleSave);
+    document.addEventListener('st:dirty', scheduleSave);
+    sel.addEventListener('change', function(){ switchTo(sel.value); });
+    if (newBtn) newBtn.addEventListener('click', newDraft);
+    if (delBtn) delBtn.addEventListener('click', function(){ if (window.confirm('Delete this ticket? This cannot be undone.')) deleteCurrent(); });
+    if (emailBtn) emailBtn.addEventListener('click', function(){
+      var idx = getIndex();
+      for (var i = 0; i < idx.length; i++){ if (idx[i].id === current){ idx[i].sent = true; break; } }
+      setIndex(idx); refreshSelect();
+    });
+
+    // boot: resume the last-open ticket, else the most recent, else start fresh
+    var startId = ls(CUR), idx = getIndex();
+    if (startId && ls(PFX + startId)) { current = startId; loadDraft(startId); }
+    else if (idx.length && ls(PFX + idx[0].id)) { current = idx[0].id; loadDraft(idx[0].id); }
+    else { current = genId(); saveNow(); }
   })();
   </script>
 </body>
