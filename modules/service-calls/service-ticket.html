@@ -134,6 +134,9 @@
   #formControls .print-btn { font: inherit; cursor: pointer; background: #1d6e56; color: #fff;
                    border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
   #formControls .print-btn:hover { background: #155a45; }
+  #formControls .email-btn { font: inherit; cursor: pointer; background: #185fa5; color: #fff;
+                   border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
+  #formControls .email-btn:hover { background: #124c84; }
 
   @media screen {
     body { background: #f4f4f4; padding: 24px 0; }
@@ -157,6 +160,7 @@
 
   <div id="formControls">
     <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
+    <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email Ticket</button>
     <label><input type="checkbox" id="toggleNotes" checked>
       Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
   </div>
@@ -326,6 +330,45 @@
     }
     if (cb) cb.addEventListener('change', sync);
     sync();
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var btn = document.getElementById('emailTicketBtn');
+    if (!btn) return;
+    function filledHtml(){
+      var clone = document.documentElement.cloneNode(true);
+      var live = document.querySelectorAll('input, textarea');
+      var cl   = clone.querySelectorAll('input, textarea');
+      for (var i = 0; i < live.length; i++) {
+        var el = live[i], c = cl[i]; if (!c) continue;
+        if (el.tagName === 'TEXTAREA') c.textContent = el.value;
+        else if (el.type === 'checkbox') { if (el.checked) c.setAttribute('checked', ''); else c.removeAttribute('checked'); }
+        else c.setAttribute('value', el.value);
+      }
+      var fc = clone.querySelector('#formControls'); if (fc) fc.parentNode.removeChild(fc);
+      var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
+      return '<!doctype html>\n' + clone.outerHTML;
+    }
+    function fallbackDownload(blob, name){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a'); a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    }
+    btn.addEventListener('click', async function(){
+      var name = 'Service-Ticket.html';
+      var blob = new Blob([filledHtml()], { type: 'text/html' });
+      var file = new File([blob], name, { type: 'text/html' });
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Service Ticket', text: 'Completed Service Ticket attached.' });
+          return;
+        }
+      } catch (e) { if (e && e.name === 'AbortError') return; }
+      fallbackDownload(blob, name);
+    });
   })();
   </script>
 </body>

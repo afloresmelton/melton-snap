@@ -554,7 +554,7 @@
     }
     root.innerHTML =
       '<div class="sc-fullform-wrap">' +
-        '<iframe id="scFullFrame" class="sc-fullform-frame" ' +
+        '<iframe id="scFullFrame" class="sc-fullform-frame" allow="web-share" ' +
         'src="modules/service-calls/service-ticket.html" title="Service Ticket"></iframe>' +
       '</div>';
     const frame = document.getElementById('scFullFrame');
