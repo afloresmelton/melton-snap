@@ -64,7 +64,7 @@
   input.fin { flex: 1 1 auto; min-width: 0; width: 100%; font-size: 10pt; }
   input.lin { width: 100%; font-size: 10pt; }
   input.lin.num { text-align: center; }
-  input.hin { width: 44px; font-size: 9.5pt; text-align: center; background: #fff;
+  input.hin { width: 44px; font-size: 9.5pt; font-weight: 700; text-align: center; background: #fff;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   input.qin { width: 100%; font-size: 10pt; text-align: center; }
   input.din { width: 100%; font-size: 10pt; }
@@ -203,9 +203,9 @@
     <table class="grid hours">
       <tr>
         <td class="shade name">Total Hours This Visit</td>
-        <td class="shade"><b>ST</b> <input class="hin" type="text"></td>
-        <td class="shade"><b>OT</b> <input class="hin" type="text"></td>
-        <td class="shade"><b>DT</b> <input class="hin" type="text"></td>
+        <td class="shade"><b>ST</b> <input class="hin" type="text" readonly></td>
+        <td class="shade"><b>OT</b> <input class="hin" type="text" readonly></td>
+        <td class="shade"><b>DT</b> <input class="hin" type="text" readonly></td>
       </tr>
     </table>
 
@@ -418,6 +418,30 @@
         });
       });
     });
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var totals = document.querySelectorAll('.hours input.hin');   // [ST, OT, DT]
+    if (totals.length < 3) return;
+    var rows = document.querySelectorAll('.labor tbody tr');
+    function fmt(n){ n = Math.round(n * 100) / 100; return n ? String(n) : ''; }
+    function recompute(){
+      var sums = [0, 0, 0];
+      rows.forEach(function(tr){
+        var cells = tr.querySelectorAll('td');     // [Worker, ST, OT, DT]
+        for (var c = 1; c <= 3; c++) {
+          var inp = cells[c] && cells[c].querySelector('input');
+          if (inp) { var v = parseFloat(inp.value); if (!isNaN(v)) sums[c - 1] += v; }
+        }
+      });
+      for (var i = 0; i < 3; i++) totals[i].value = fmt(sums[i]);
+    }
+    document.querySelectorAll('.labor tbody input.num').forEach(function(inp){
+      inp.addEventListener('input', recompute);
+    });
+    recompute();
   })();
   </script>
 </body>
