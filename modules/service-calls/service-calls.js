@@ -549,7 +549,10 @@
       s.id = 'sc-fullform-styles';
       s.textContent =
         '.sc-fullform-wrap{padding:0 0 90px}' +
-        '.sc-fullform-frame{width:100%;border:0;display:block;background:#f4f4f4}';
+        '.sc-fullform-frame{width:100%;border:0;display:block;background:#f4f4f4}' +
+        // the full Service Ticket needs the whole tablet width, not the 600px
+        // reading column the phone-capture modules sit in
+        'body.sc-fullform-active #appView,body.sc-fullform-active #header{max-width:none}';
       document.head.appendChild(s);
     }
     root.innerHTML =
@@ -718,7 +721,12 @@
     icon:   '🔧',
     rootId: 'module-service-calls',
     mount,
-    onShow: focusFirstField
+    onShow: function(){
+      // full Service Ticket (tablets) takes the whole width; compact stays in-column
+      document.body.classList.toggle('sc-fullform-active', !!(shell.device && shell.device.isTablet));
+      focusFirstField();
+    },
+    onHide: function(){ document.body.classList.remove('sc-fullform-active'); }
   });
 
 })(window.shell);

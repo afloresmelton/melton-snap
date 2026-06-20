@@ -139,7 +139,11 @@
   #formControls .email-btn:hover { background: #124c84; }
 
   @media screen {
-    body { background: #f4f4f4; padding: 24px 0; }
+    html { background: #f4f4f4; }
+    /* Scale-to-fit: the page is a fixed 8.5in; when the viewport is narrower,
+       --fit (set by JS) zooms the whole form down so nothing is cut off. Print
+       ignores this (no zoom in @media print). */
+    body { background: #f4f4f4; padding: 24px 0; zoom: var(--fit, 1); }
     .page { box-shadow: 0 1px 10px rgba(0,0,0,0.45); margin-bottom: 24px; }
     input.fin, input.lin, input.qin, input.din, input.pin, input.sigin,
     textarea.wta, textarea.nta { background: rgba(40,90,200,0.05); }
@@ -369,6 +373,20 @@
       } catch (e) { if (e && e.name === 'AbortError') return; }
       fallbackDownload(blob, name);
     });
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var PAGE = 8.5 * 96;  // form page width in CSS px
+    function fit(){
+      var avail = document.documentElement.clientWidth || window.innerWidth || PAGE;
+      var f = Math.min(1, (avail - 8) / PAGE);
+      document.documentElement.style.setProperty('--fit', f > 0.2 ? f : 0.2);
+    }
+    fit();
+    window.addEventListener('resize', fit);
+    window.addEventListener('orientationchange', function(){ setTimeout(fit, 200); });
   })();
   </script>
 </body>
