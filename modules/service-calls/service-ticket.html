@@ -111,6 +111,14 @@
   .sign td.sigcell:nth-child(1) { width: 48%; }
   .sign td.sigcell:nth-child(2) { width: 32%; }
   .siglbl { font-size: 8pt; font-weight: bold; color: #555; text-transform: uppercase; }
+  /* customer signature pad (finger / stylus); the cell fills with a canvas, the
+     label floats at the bottom, a Clear button sits top-right (screen-only). */
+  .sigpad-cell { position: relative; padding: 0; }
+  .sigpad { position: absolute; left: 0; top: 0; width: 100%; height: 100%; touch-action: none; }
+  .sigpad-cell .siglbl { position: absolute; left: 5px; bottom: 2px; pointer-events: none; }
+  .sig-clear { position: absolute; top: 1px; right: 3px; z-index: 2; font: inherit; font-size: 7.5pt;
+                color: #777; background: rgba(255,255,255,0.85); border: 1px solid #ccc;
+                border-radius: 4px; padding: 0 5px; cursor: pointer; }
 
   /* page 2 material table */
   .gap { height: 8px; }
@@ -155,6 +163,7 @@
   @media print {
     body { background: #fff; }
     #formControls { display: none !important; }
+    .sig-clear { display: none !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
@@ -220,7 +229,7 @@
 
     <table class="grid sign">
       <tr>
-        <td class="sigcell"><div class="siglbl">Customer Signature</div></td>
+        <td class="sigcell sigpad-cell"><canvas class="sigpad"></canvas><button type="button" class="sig-clear">Clear</button><div class="siglbl">Customer Signature</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Print Name</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Date</div></td>
       </tr>
@@ -368,6 +377,16 @@
         else c.setAttribute('value', el.value);
       }
       var fc = clone.querySelector('#formControls'); if (fc) fc.parentNode.removeChild(fc);
+      // signature: a cloned <canvas> is blank — swap in an <img> of the drawing
+      var liveSig = document.querySelector('canvas.sigpad'), cloneSig = clone.querySelector('canvas.sigpad');
+      if (liveSig && cloneSig && cloneSig.parentNode) {
+        var sigImg = document.createElement('img');
+        sigImg.src = liveSig.toDataURL('image/png');
+        sigImg.className = 'sigpad';
+        sigImg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;';
+        cloneSig.parentNode.replaceChild(sigImg, cloneSig);
+      }
+      var sclr = clone.querySelectorAll('.sig-clear'); for (var s = 0; s < sclr.length; s++) sclr[s].parentNode.removeChild(sclr[s]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
       return '<!doctype html>\n' + clone.outerHTML;
     }
@@ -473,6 +492,37 @@
       el.addEventListener('input', function(){ var v = format(el.value); if (v !== el.value) el.value = v; mark(el); });
       el.addEventListener('blur', function(){ mark(el); });
     });
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var cv = document.querySelector('canvas.sigpad');
+    if (!cv) return;
+    var ctx = cv.getContext('2d');
+    var drawing = false, last = null;
+    function size(){
+      var r = cv.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      var dpr = window.devicePixelRatio || 1;
+      var prev = (cv.width && cv.height) ? cv.toDataURL() : null;
+      cv.width = Math.round(r.width * dpr);
+      cv.height = Math.round(r.height * dpr);
+      ctx.lineWidth = 1.8 * dpr; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
+      if (prev) { var im = new Image(); im.onload = function(){ ctx.drawImage(im, 0, 0, cv.width, cv.height); }; im.src = prev; }
+    }
+    function pos(e){
+      var r = cv.getBoundingClientRect();
+      return { x: (e.clientX - r.left) / r.width * cv.width, y: (e.clientY - r.top) / r.height * cv.height };
+    }
+    cv.addEventListener('pointerdown', function(e){ drawing = true; last = pos(e); try { cv.setPointerCapture(e.pointerId); } catch (x) {} e.preventDefault(); });
+    cv.addEventListener('pointermove', function(e){ if (!drawing) return; var p = pos(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; e.preventDefault(); });
+    cv.addEventListener('pointerup', function(){ drawing = false; });
+    cv.addEventListener('pointercancel', function(){ drawing = false; });
+    var clr = document.querySelector('.sig-clear');
+    if (clr) clr.addEventListener('click', function(){ ctx.clearRect(0, 0, cv.width, cv.height); });
+    size();
+    window.addEventListener('resize', function(){ setTimeout(size, 100); });
   })();
   </script>
 </body>
