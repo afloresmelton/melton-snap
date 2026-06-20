@@ -398,8 +398,8 @@
     renderPhotos(); autosave(); updateSubmitBtn();
   }
 
-  // ── Mount ──────────────────────────────────────────────────────────────────
-  function mount(root) {
+  // ── Mount (compact phone capture) ────────────────────────────────────────
+  function mountCompact(root) {
     scRoot = root;
     injectStyles();
 
@@ -536,6 +536,46 @@
     // ── Init ─────────────────────────────────────────────────────────────────
     loadAssigned();
     initDraft();
+  }
+
+  // ── Mount (full Service Ticket — tablets) ───────────────────────────────────
+  // Large tablets (the service techs) get the actual fillable Service Ticket: an
+  // 8.5x11 doc that reads like the paper form, embedded in an iframe (it's a
+  // self-contained document with its own print styles). Phones fall back to the
+  // compact capture above. shell.device picks by screen size, not user-agent.
+  function mountFullForm(root) {
+    if (!document.getElementById('sc-fullform-styles')) {
+      const s = document.createElement('style');
+      s.id = 'sc-fullform-styles';
+      s.textContent =
+        '.sc-fullform-wrap{padding:0 0 90px}' +
+        '.sc-fullform-frame{width:100%;border:0;display:block;background:#f4f4f4}';
+      document.head.appendChild(s);
+    }
+    root.innerHTML =
+      '<div class="sc-fullform-wrap">' +
+        '<iframe id="scFullFrame" class="sc-fullform-frame" ' +
+        'src="modules/service-calls/service-ticket.html" title="Service Ticket"></iframe>' +
+      '</div>';
+    const frame = document.getElementById('scFullFrame');
+    // Same-origin iframe → size it to its content so the PWA scrolls as one page
+    // (re-fit on the Notes toggle / any height change).
+    const fit = () => {
+      try {
+        const d = frame.contentDocument;
+        if (d && d.documentElement) frame.style.height = d.documentElement.scrollHeight + 'px';
+      } catch (e) {}
+    };
+    frame.addEventListener('load', () => {
+      fit(); setTimeout(fit, 300); setTimeout(fit, 1200);
+      try { new ResizeObserver(fit).observe(frame.contentDocument.documentElement); } catch (e) {}
+    });
+  }
+
+  // Route by device: tablets → full Service Ticket, phones → compact capture.
+  function mount(root) {
+    if (shell.device && shell.device.isTablet) mountFullForm(root);
+    else mountCompact(root);
   }
 
   // ── Focus first field on tab activation ────────────────────────────────────

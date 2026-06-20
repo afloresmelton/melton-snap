@@ -102,4 +102,34 @@ window.shell = window.shell || {};
   };
   shell.util = util;
 
+  // ── Device / form-factor — tablet vs phone ──────────────────────────────
+  // Detect SCREEN SIZE (capability), never the user-agent: iPadOS Safari
+  // reports itself as a desktop "Macintosh", so a UA "iPad" check is useless.
+  // The shortest screen edge is orientation-proof — phones top out ~430 CSS px
+  // on their short side, tablets start ~744. maxTouchPoints separates an
+  // iPad-pretending-to-be-Mac (>0) from a real Mac (0). A manual override
+  // (set via Settings → persisted in localStorage) always wins.
+  shell.device = (function () {
+    const KEY = 'mh:formFactor';   // override: 'phone' | 'tablet' | null
+    function detect() {
+      const shortEdge = Math.min(screen.width || 0, screen.height || 0);
+      const touch = (navigator.maxTouchPoints || 0) > 0;
+      return shortEdge >= 600 && touch ? 'tablet' : touch ? 'phone' : 'desktop';
+    }
+    let override = null;
+    try { override = localStorage.getItem(KEY); } catch (e) {}
+    const detected = detect();
+    return {
+      get kind()     { return override || detected; },
+      get isTablet() { return this.kind !== 'phone'; },   // tablet OR desktop → full form
+      get isPhone()  { return this.kind === 'phone'; },
+      get detected() { return detected; },
+      setOverride(k) {
+        override = (k === 'phone' || k === 'tablet') ? k : null;
+        try { override ? localStorage.setItem(KEY, override) : localStorage.removeItem(KEY); } catch (e) {}
+        try { window.dispatchEvent(new Event('shell:formfactor')); } catch (e) {}
+      }
+    };
+  })();
+
 })(window.shell);

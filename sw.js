@@ -2,7 +2,7 @@
 // Phase 2.0: the shell is now several small files (shell/* + modules/*) instead
 // of one app.js. All are precached so the field hub launches offline.
 
-const CACHE_NAME = 'melton-snap-v58';
+const CACHE_NAME = 'melton-snap-v59';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const SHELL_ASSETS = [
   './modules/photos/photos.js',
   './modules/material-request/material-request.js',
   './modules/service-calls/service-calls.js',
+  './modules/service-calls/service-ticket.html',
   'https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js',
   'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js'
 ];
@@ -54,7 +55,10 @@ self.addEventListener('fetch', (event) => {
   // shows on the next launch. Fall back to the cached shell only when offline.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req, { cache: 'reload' }).catch(() => caches.match('./index.html'))
+      // Try fresh; offline, fall back to the cached page ITSELF first (e.g. the
+      // embedded Service Ticket iframe → service-ticket.html), then the app shell.
+      fetch(req, { cache: 'reload' })
+        .catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
     );
     return;
   }
