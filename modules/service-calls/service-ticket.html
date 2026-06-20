@@ -151,6 +151,20 @@
   .mat tbody td.src .srcwrap { display: flex; justify-content: space-between; align-items: center; }
   .mat tbody td.src .srcopt { white-space: nowrap; }
   .mat tbody td.pn { text-align: center; }
+  .mat tbody td.desc { position: relative; }   /* positioning context for the catalog dropdown */
+
+  /* catalog autocomplete: a shared dropdown that drops under the focused
+     Description input (screen-only; removed from export, hidden in print). */
+  .cat-hint { font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; color: #185fa5;
+               background: #eef4fb; border: 1px solid #cfe0f2; border-radius: 5px;
+               padding: 4px 9px; margin: 0 0 6px; }
+  .cat-dd { position: absolute; left: 0; top: 100%; z-index: 60; width: 100%; min-width: 240px;
+             max-height: 230px; overflow-y: auto; background: #fff; border: 1px solid #8aa;
+             border-radius: 0 0 6px 6px; box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
+  .cat-dd[hidden] { display: none; }
+  .cat-opt { padding: 7px 10px; font-size: 9.5pt; border-bottom: 1px solid #eee; cursor: pointer; white-space: nowrap; }
+  .cat-opt:last-child { border-bottom: none; }
+  .cat-opt:hover, .cat-opt.on { background: #e8f0fb; }
 
   /* screen vs print */
   /* screen-only digital control: toggles inclusion of the Notes page (Page 3); never prints */
@@ -192,6 +206,7 @@
     body { background: #fff; }
     #formControls { display: none !important; }
     .sig-hint, #sigModal { display: none !important; }
+    .cat-hint, .cat-dd { display: none !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
@@ -299,6 +314,7 @@
     </table>
 
     <div class="gap"></div>
+    <div class="cat-hint">&#128269;&nbsp; Type in a <b>Description</b> to search the materials catalog &mdash; tap a result to fill that row</div>
 
     <table class="grid mat">
       <thead>
@@ -310,7 +326,7 @@
           <th style="width:15%">Purch. Ord.</th>
         </tr>
       </thead>
-      <tbody><tr><td class="r">1</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">2</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">3</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">4</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">5</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">6</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">7</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">8</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">9</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">10</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">11</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">12</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">13</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">14</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">15</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">16</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">17</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">18</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">19</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">20</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">21</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">22</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">23</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">24</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr></tbody>
+      <tbody><tr><td class="r">1</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">2</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">3</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">4</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">5</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">6</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">7</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">8</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">9</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">10</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">11</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">12</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">13</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">14</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">15</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">16</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">17</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">18</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">19</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">20</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">21</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">22</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">23</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr><tr><td class="r">24</td><td><input class="qin" type="text" inputmode="decimal"></td><td class="desc"><input class="din" type="text" autocomplete="off" autocorrect="off" spellcheck="false"></td><td class="src"><span class="srcwrap"><span class="srcopt"><input type="checkbox" class="cb">Stock</span><span class="srcopt"><input type="checkbox" class="cb">Purch.</span></span></td><td class="pn"><input class="pin" type="text" placeholder="ABC-12345-67"></td></tr></tbody>
     </table>
     
     <div class="footer">
@@ -364,6 +380,8 @@
       </div>
     </div>
   </div>
+
+  <div id="catDD" class="cat-dd" hidden></div>
 
   <script>
   (function(){
@@ -432,6 +450,7 @@
       // hint (screen-only interaction chrome).
       var sm = clone.querySelector('#sigModal'); if (sm) sm.parentNode.removeChild(sm);
       var sh = clone.querySelectorAll('.sig-hint'); for (var s = 0; s < sh.length; s++) sh[s].parentNode.removeChild(sh[s]);
+      var cz = clone.querySelectorAll('#catDD, .cat-hint'); for (var z = 0; z < cz.length; z++) cz[z].parentNode.removeChild(cz[z]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
       return '<!doctype html>\n' + clone.outerHTML;
     }
@@ -628,6 +647,82 @@
       if (s) { sigData = s; img.src = s; img.hidden = false; hint.hidden = true; stamp.textContent = st || ''; stamp.hidden = !st; }
       else { sigData = null; img.removeAttribute('src'); img.hidden = true; hint.hidden = false; stamp.textContent = ''; stamp.hidden = true; }
     };
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var dins = document.querySelectorAll('.mat td.desc input.din');
+    var dd = document.getElementById('catDD');
+    if (!dins.length || !dd) return;
+    var catalog = [], ready = false, activeInput = null, hideTimer = null, hits = [];
+
+    function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+    // load the company field catalog (graceful 404 -> plain free-text fields)
+    try {
+      fetch(new URL('../../catalog/items.json', location.href).href)
+        .then(function(r){ if (!r.ok) throw 0; return r.json(); })
+        .then(function(data){
+          catalog = (data.items || []).filter(function(it){ return it && it.description; }).map(function(it){
+            var desc = String(it.description);
+            var search = (desc + ' ' + (it.keywords || '')).toLowerCase();
+            return { description: desc,
+                     searchN: search.replace(/[^a-z0-9]+/g, ' ').trim(),
+                     dn: desc.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() };
+          });
+          ready = catalog.length > 0;
+        })
+        .catch(function(){});
+    } catch (e) {}
+
+    // gate on AND-of-terms across description+keywords, then rank by description tightness
+    function rank(q){
+      var qn = q.replace(/[^a-z0-9]+/g, ' ').trim();
+      var termsN = q.split(/\s+/).map(function(t){ return t.replace(/[^a-z0-9]+/g, ' ').trim(); }).filter(Boolean);
+      var n = termsN.length; if (!n) return [];
+      var m = [];
+      for (var i = 0; i < catalog.length; i++) {
+        var s = catalog[i].searchN, ok = true;
+        for (var t = 0; t < n; t++) { if (s.indexOf(termsN[t]) < 0) { ok = false; break; } }
+        if (ok) { m.push(catalog[i]); if (m.length > 600) break; }
+      }
+      for (var i = 0; i < m.length; i++) {
+        var dn = m[i].dn, sc = 0;
+        if (dn === qn) sc += 1000; else if (dn.indexOf(qn) === 0) sc += 300; else if (qn && dn.indexOf(qn) >= 0) sc += 150;
+        var inD = 0; for (var t = 0; t < n; t++) { if (dn.indexOf(termsN[t]) >= 0) inD++; }
+        sc += inD * 30; if (inD === n) sc += 60;
+        var dw = dn ? dn.split(' ').length : 0; sc -= Math.max(0, dw - n) * 12;
+        m[i]._sc = sc;
+      }
+      m.sort(function(a, b){ return b._sc - a._sc; });
+      return m;
+    }
+    function hide(){ dd.hidden = true; }
+    function show(input){
+      var q = (input.value || '').trim().toLowerCase();
+      if (!ready || q.length < 2) { hide(); return; }
+      hits = rank(q).slice(0, 30);
+      if (!hits.length) { hide(); return; }
+      dd.innerHTML = hits.map(function(it, i){ return '<div class="cat-opt" data-i="' + i + '">' + esc(it.description) + '</div>'; }).join('');
+      var cell = input.closest('td.desc');
+      if (dd.parentNode !== cell) cell.appendChild(dd);
+      dd.scrollTop = 0; dd.hidden = false;
+    }
+
+    dins.forEach(function(inp){
+      inp.addEventListener('input', function(){ activeInput = inp; show(inp); });
+      inp.addEventListener('focus', function(){ activeInput = inp; if ((inp.value || '').trim().length >= 2) show(inp); });
+      inp.addEventListener('blur', function(){ hideTimer = setTimeout(hide, 200); });
+    });
+    dd.addEventListener('pointerdown', function(e){
+      var opt = e.target.closest('.cat-opt'); if (!opt || !activeInput) return;
+      e.preventDefault();   // keep focus, win the blur-hide race
+      var hit = hits[+opt.dataset.i]; if (!hit) return;
+      activeInput.value = hit.description;
+      activeInput.dispatchEvent(new Event('change', { bubbles: true }));   // autosave, no re-trigger of input->show
+      hide();
+    });
   })();
   </script>
 
