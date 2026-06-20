@@ -250,7 +250,7 @@
       <tr>
         <td class="sigcell sigpad-cell" id="sigCell"><img class="sig-img" alt="signature" hidden><span class="sig-hint">Tap to sign</span><div class="sig-stamp" hidden></div><div class="siglbl">Customer Signature</div></td>
         <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Print Name</div></td>
-        <td class="sigcell"><input class="sigin" type="text"><div class="siglbl">Date</div></td>
+        <td class="sigcell"><input class="sigin" type="text" id="sigDate"><div class="siglbl">Date</div></td>
       </tr>
     </table>
     
@@ -532,14 +532,18 @@
     var hint  = cell.querySelector('.sig-hint');
     var stamp = cell.querySelector('.sig-stamp');
     var card  = modal.querySelector('.sig-modal-card');
+    var dateEl = document.getElementById('sigDate');   // the "Date" field by the signature
     var ctx   = cv.getContext('2d');
     var sigData = null, drawing = false, last = null, dirty = false;
 
+    function nowDate(){
+      var d = new Date();
+      return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + d.getFullYear();
+    }
     function nowStamp(){
       var d = new Date();
-      var mm = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
       var h = d.getHours(), ap = h < 12 ? 'AM' : 'PM', h12 = (h % 12) || 12, mi = ('0' + d.getMinutes()).slice(-2);
-      return 'Signed ' + mm + '/' + dd + '/' + d.getFullYear() + '  ' + h12 + ':' + mi + ' ' + ap;
+      return 'Signed ' + nowDate() + '  ' + h12 + ':' + mi + ' ' + ap;
     }
     function sizeCanvas(){
       var r = cv.getBoundingClientRect();
@@ -576,9 +580,11 @@
         if (isEmpty()) {
           sigData = null; img.removeAttribute('src'); img.hidden = true;
           hint.hidden = false; stamp.hidden = true; stamp.textContent = '';
+          if (dateEl) dateEl.value = '';
         } else {
           sigData = cv.toDataURL('image/png'); img.src = sigData; img.hidden = false;
           hint.hidden = true; stamp.textContent = nowStamp(); stamp.hidden = false;
+          if (dateEl) dateEl.value = nowDate();   // auto-fill the signature Date
         }
       }
       close();
