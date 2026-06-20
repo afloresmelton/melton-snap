@@ -185,9 +185,9 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text"></label></td></tr>
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text"></label></td><td class="field wstatus" style="width:70%"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
+      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
+      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
+      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td><td class="field wstatus" style="width:70%"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
     </table>
 
     <table class="grid wgrid">
@@ -247,8 +247,8 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text"></label></td></tr>
+      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
+      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
     </table>
 
     <div class="gap"></div>
@@ -288,8 +288,8 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text"></label></td></tr>
+      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
+      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
     </table>
 
     <div class="gap"></div>
@@ -341,6 +341,23 @@
   (function(){
     var btn = document.getElementById('emailTicketBtn');
     if (!btn) return;
+    // Attachment filename + email subject, derived from the form's identifying
+    // fields (data-tkt). Edit these two builders to change the nomenclature.
+    function fieldVal(key){ var el = document.querySelector('[data-tkt="' + key + '"]'); return el ? (el.value || '').trim() : ''; }
+    function clean(s){ return (s || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').replace(/-{2,}/g, '-').trim(); }
+    function ticketName(){
+      var who = clean(fieldVal('jobName') || fieldVal('jobNo')), dt = clean(fieldVal('date'));
+      var parts = ['Service Ticket']; if (who) parts.push(who); if (dt) parts.push(dt);
+      return parts.join(' - ');
+    }
+    function ticketSubject(){
+      var jn = fieldVal('jobName'), jno = fieldVal('jobNo'), dt = fieldVal('date');
+      var s = 'Service Ticket';
+      if (jn) s += ' - ' + jn;
+      if (jno) s += ' (Job ' + jno + ')';
+      if (dt) s += ' - ' + dt;
+      return s;
+    }
     function loadScript(src){
       return new Promise(function(res, rej){
         var s = document.createElement('script'); s.src = src;
@@ -383,11 +400,11 @@
       var label = btn.innerHTML; btn.disabled = true; btn.textContent = 'Generating PDF…';
       try {
         var blob = await makePdf();
-        var name = 'Service-Ticket.pdf';
+        var name = ticketName() + '.pdf';
         var file = new File([blob], name, { type: 'application/pdf' });
         try {
           if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: 'Service Ticket', text: 'Completed Service Ticket attached.' });
+            await navigator.share({ files: [file], title: ticketSubject(), text: 'Completed Service Ticket attached.' });
             return;
           }
         } catch (e) { if (e && e.name === 'AbortError') return; }
