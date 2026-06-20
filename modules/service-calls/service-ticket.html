@@ -164,7 +164,7 @@
 
   <div id="formControls">
     <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
-    <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email Ticket</button>
+    <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email PDF</button>
     <label><input type="checkbox" id="toggleNotes" checked>
       Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
   </div>
@@ -341,37 +341,63 @@
   (function(){
     var btn = document.getElementById('emailTicketBtn');
     if (!btn) return;
-    function filledHtml(){
-      var clone = document.documentElement.cloneNode(true);
-      var live = document.querySelectorAll('input, textarea');
-      var cl   = clone.querySelectorAll('input, textarea');
-      for (var i = 0; i < live.length; i++) {
-        var el = live[i], c = cl[i]; if (!c) continue;
-        if (el.tagName === 'TEXTAREA') c.textContent = el.value;
-        else if (el.type === 'checkbox') { if (el.checked) c.setAttribute('checked', ''); else c.removeAttribute('checked'); }
-        else c.setAttribute('value', el.value);
-      }
-      var fc = clone.querySelector('#formControls'); if (fc) fc.parentNode.removeChild(fc);
-      var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
-      return '<!doctype html>\n' + clone.outerHTML;
+    function loadScript(src){
+      return new Promise(function(res, rej){
+        var s = document.createElement('script'); s.src = src;
+        s.onload = res; s.onerror = function(){ rej(new Error('load failed: ' + src)); };
+        document.head.appendChild(s);
+      });
     }
-    function fallbackDownload(blob, name){
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a'); a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    async function ensureLibs(){
+      if (!window.html2canvas) await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+      if (!window.jspdf)       await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js');
+    }
+    // html2canvas renders a CLONE — capture at full size (ignore the screen
+    // scale-to-fit), drop screen-only chrome/tints, and render checked boxes as a
+    // solid fill since rasterizers can't draw the CSS checkmark.
+    function cleanClone(doc){
+      doc.documentElement.style.setProperty('--fit', '1');
+      var fc = doc.getElementById('formControls'); if (fc && fc.parentNode) fc.parentNode.removeChild(fc);
+      var st = doc.createElement('style');
+      st.textContent = 'input,textarea{background:transparent !important;}' +
+        '.page{box-shadow:none !important;margin:0 !important;}' +
+        '.cb:checked{background:#16324f !important;} .cb:checked::after{display:none !important;}';
+      doc.head.appendChild(st);
+    }
+    async function makePdf(){
+      await ensureLibs();
+      var JsPDF = window.jspdf.jsPDF;
+      var pdf = new JsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+      var pages = Array.prototype.slice.call(document.querySelectorAll('.page'))
+        .filter(function(p){ return getComputedStyle(p).display !== 'none'; });
+      for (var i = 0; i < pages.length; i++) {
+        var canvas = await window.html2canvas(pages[i], {
+          scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 816, onclone: cleanClone
+        });
+        if (i > 0) pdf.addPage('letter', 'portrait');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 8.5, 11);
+      }
+      return pdf.output('blob');
     }
     btn.addEventListener('click', async function(){
-      var name = 'Service-Ticket.html';
-      var blob = new Blob([filledHtml()], { type: 'text/html' });
-      var file = new File([blob], name, { type: 'text/html' });
+      var label = btn.innerHTML; btn.disabled = true; btn.textContent = 'Generating PDF…';
       try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'Service Ticket', text: 'Completed Service Ticket attached.' });
-          return;
-        }
-      } catch (e) { if (e && e.name === 'AbortError') return; }
-      fallbackDownload(blob, name);
+        var blob = await makePdf();
+        var name = 'Service-Ticket.pdf';
+        var file = new File([blob], name, { type: 'application/pdf' });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'Service Ticket', text: 'Completed Service Ticket attached.' });
+            return;
+          }
+        } catch (e) { if (e && e.name === 'AbortError') return; }
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      } catch (e) {
+        alert('Could not build the PDF (' + (e && e.message ? e.message : e) + ').\nUse "Print / Save as PDF" instead.');
+      } finally { btn.disabled = false; btn.innerHTML = label; }
     });
   })();
   </script>
