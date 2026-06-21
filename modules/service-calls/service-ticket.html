@@ -73,7 +73,7 @@
   input.sigin { width: 100%; font-size: 11pt; }
   textarea.wta { display: block; width: 100%; height: 57.6pt; resize: none;
          font-size: 12pt; line-height: 1.2; }
-  textarea.nta { display: block; width: 100%; height: 7.0in; resize: none;
+  textarea.nta { display: block; width: 100%; height: 3.3in; resize: none;
          font-size: 12pt; line-height: 1.3; }
   ::placeholder { color: #bbb; opacity: 1; }
 
@@ -88,8 +88,25 @@
                  letter-spacing: 0.04em; }
   .wbox { vertical-align: top; }
   .wbox-space { height: 57.6pt; }
-  /* Page 3 Notes — large open writing area (digital: a free-text field). */
-  .notesbox { height: 7.2in; }
+  /* Page 3 Notes — writing area on top, photo grid below (they share the page). */
+  .notesbox { height: 3.5in; }
+  /* embedded photos: captioned thumbnails baked into the ticket. The Add button +
+     per-photo delete are screen-only (stripped from export, hidden in print). */
+  .photo-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .photo-card { position: relative; width: 31.5%; min-width: 150px; border: 1px solid #ccc;
+                 border-radius: 6px; padding: 5px; background: #fff; }
+  .photo-img { display: block; width: 100%; height: 1.5in; object-fit: cover; border-radius: 4px;
+                background: #f0f0f0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .photo-cap { width: 100%; margin-top: 5px; font-size: 8.5pt; border: none;
+                border-bottom: 1px solid #ddd; padding: 2px 1px; }
+  .photo-del { position: absolute; top: 8px; right: 10px; width: 22px; height: 22px; border: none;
+                border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 14pt;
+                line-height: 20px; text-align: center; cursor: pointer; padding: 0; }
+  #photoControls { margin: 2px 0; }
+  .photo-add { font: inherit; cursor: pointer; background: #185fa5; color: #fff; border: none;
+                border-radius: 5px; padding: 6px 14px; }
+  .photo-add:hover { background: #124c84; }
+  .ph-hint { font-size: 8.5pt; color: #888; margin-left: 10px; }
 
   /* hours summary */
   .hours td { height: 0.34in; vertical-align: middle; }
@@ -207,6 +224,7 @@
     #formControls { display: none !important; }
     .sig-hint, #sigModal { display: none !important; }
     .cat-hint, .cat-dd { display: none !important; }
+    #photoControls, .photo-del { display: none !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
@@ -359,6 +377,10 @@
 
     <div class="seclbl">Notes / Additional Information</div>
     <table class="grid"><tr><td class="notesbox"><textarea class="nta"></textarea></td></tr></table>
+
+    <div class="seclbl">Photos</div>
+    <div id="photoControls"><button type="button" id="addPhotoBtn" class="photo-add">&#128247;&nbsp; Add Photo</button><span class="ph-hint">attached to this ticket &mdash; auto-downscaled to keep the email small</span></div>
+    <div id="photoGrid" class="photo-grid"></div>
     
     <div class="footer">
       <div class="footer-meta">Notes</div>
@@ -451,6 +473,7 @@
       var sm = clone.querySelector('#sigModal'); if (sm) sm.parentNode.removeChild(sm);
       var sh = clone.querySelectorAll('.sig-hint'); for (var s = 0; s < sh.length; s++) sh[s].parentNode.removeChild(sh[s]);
       var cz = clone.querySelectorAll('#catDD, .cat-hint'); for (var z = 0; z < cz.length; z++) cz[z].parentNode.removeChild(cz[z]);
+      var pz = clone.querySelectorAll('#photoControls, .photo-del'); for (var p = 0; p < pz.length; p++) pz[p].parentNode.removeChild(pz[p]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
       return '<!doctype html>\n' + clone.outerHTML;
     }
@@ -728,6 +751,98 @@
 
   <script>
   (function(){
+    var grid   = document.getElementById('photoGrid');
+    var addBtn = document.getElementById('addPhotoBtn');
+    if (!grid || !addBtn) return;
+    window.ST = window.ST || {};
+    var photos = [], draftId = null, capTimer = null;
+    var MAX_PHOTOS = 8;
+
+    // ---- tiny IndexedDB (photos would blow the ~5MB localStorage draft quota) ----
+    var DBP = null;
+    function db(){
+      if (DBP) return DBP;
+      DBP = new Promise(function(res, rej){
+        var r = indexedDB.open('mh-st-photos', 1);
+        r.onupgradeneeded = function(){ r.result.createObjectStore('photos'); };
+        r.onsuccess = function(){ res(r.result); };
+        r.onerror = function(){ rej(r.error); };
+      });
+      return DBP;
+    }
+    function tx(mode, fn){
+      return db().then(function(d){ return new Promise(function(res, rej){
+        var t = d.transaction('photos', mode), st = t.objectStore('photos'), rq = fn(st);
+        t.oncomplete = function(){ res(rq && 'result' in rq ? rq.result : undefined); };
+        t.onerror = function(){ rej(t.error); };
+      }); }).catch(function(){ return undefined; });
+    }
+    function loadFor(id){ return tx('readonly', function(st){ return st.get(id); }).then(function(v){ return v || []; }); }
+    function persist(){ if (!draftId) return; var snap = photos.slice(); tx('readwrite', function(st){ return st.put(snap, draftId); }); }
+
+    function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+    function render(){
+      grid.innerHTML = photos.map(function(p, i){
+        return '<div class="photo-card" data-i="' + i + '">' +
+               '<img class="photo-img" src="' + p.data + '" alt="job photo">' +
+               '<input class="photo-cap" type="text" placeholder="Caption (e.g. Burnt lug, Panel A)" value="' + esc(p.caption || '') + '">' +
+               '<button type="button" class="photo-del" title="Remove photo">&times;</button>' +
+               '</div>';
+      }).join('');
+    }
+    function ensureNotesShown(){
+      var t = document.getElementById('toggleNotes');
+      if (t && !t.checked) { t.checked = true; t.dispatchEvent(new Event('change')); }
+    }
+    function addPhoto(dataUrl){
+      if (photos.length >= MAX_PHOTOS) { alert('Up to ' + MAX_PHOTOS + ' photos per ticket.'); return; }
+      photos.push({ data: dataUrl, caption: '' });
+      ensureNotesShown(); render(); persist();
+    }
+
+    function pickPhoto(){
+      var inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+      inp.onchange = function(){
+        var f = inp.files && inp.files[0]; if (!f) return;
+        var img = new Image();
+        img.onload = function(){
+          var MAX = 1280, sc = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * sc));
+          c.height = Math.max(1, Math.round(img.naturalHeight * sc));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          try { addPhoto(c.toDataURL('image/jpeg', 0.72)); } catch (e) {}
+          URL.revokeObjectURL(img.src);
+        };
+        img.onerror = function(){ URL.revokeObjectURL(img.src); alert('Could not read that image. On iPhone: Settings > Camera > Formats > Most Compatible.'); };
+        img.src = URL.createObjectURL(f);
+      };
+      inp.click();
+    }
+
+    addBtn.addEventListener('click', pickPhoto);
+    grid.addEventListener('click', function(e){
+      var del = e.target.closest('.photo-del'); if (!del) return;
+      var i = +del.closest('.photo-card').getAttribute('data-i');
+      photos.splice(i, 1); render(); persist();
+    });
+    grid.addEventListener('input', function(e){
+      var cap = e.target.closest('.photo-cap'); if (!cap) return;
+      var i = +cap.closest('.photo-card').getAttribute('data-i');
+      if (photos[i]) { photos[i].caption = cap.value; if (capTimer) clearTimeout(capTimer); capTimer = setTimeout(persist, 500); }
+    });
+
+    // the draft manager binds the active pending ticket
+    window.ST.photosBind   = function(id){ draftId = id; loadFor(id).then(function(arr){ photos = arr || []; render(); }); };
+    window.ST.photosNewFor = function(id){ draftId = id; photos = []; render(); persist(); };
+    window.ST.photosDrop   = function(id){ tx('readwrite', function(st){ return st.delete(id); }); };
+    window.ST.photosAdd    = addPhoto;   // programmatic add (also used by tests)
+  })();
+  </script>
+
+  <script>
+  (function(){
     var sel  = document.getElementById('draftSelect');
     var form = document.getElementById('serviceTicket');
     if (!sel || !form) return;
@@ -745,7 +860,10 @@
     function lsd(k){ try { localStorage.removeItem(k); } catch(e){} }
     function genId(){ return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-    function inputs(){ return form.querySelectorAll('input:not([type=checkbox])'); }
+    // photo captions (.photo-cap) are owned by the photo module in IndexedDB and
+    // are dynamic (count varies), so they're excluded here to keep the index-based
+    // serialize/restore aligned.
+    function inputs(){ return form.querySelectorAll('input:not([type=checkbox]):not(.photo-cap)'); }
     function checks(){ return form.querySelectorAll('input[type=checkbox]'); }
     function areas(){ return form.querySelectorAll('textarea'); }
     function fieldVal(k){ var e = form.querySelector('[data-tkt="' + k + '"]'); return e ? e.value.trim() : ''; }
@@ -815,16 +933,20 @@
     function loadDraft(id){
       var raw = ls(PFX + id); if (!raw) return false;
       try { restore(JSON.parse(raw)); } catch(e){ return false; }
-      current = id; lss(CUR, id); refreshSelect(); flash('Saved'); return true;
+      current = id; lss(CUR, id);
+      if (window.ST.photosBind) window.ST.photosBind(id);   // load this ticket's photos (IndexedDB)
+      refreshSelect(); flash('Saved'); return true;
     }
-    function newDraft(){ saveNow(); current = genId(); clearForm(); saveNow(); }
+    function newDraft(){ saveNow(); current = genId(); clearForm(); if (window.ST.photosNewFor) window.ST.photosNewFor(current); saveNow(); }
     function switchTo(id){ if (!id || id === current) return; saveNow(); loadDraft(id); }
     function deleteCurrent(){
       if (!current) return;
-      var idx = getIndex().filter(function(m){ return m.id !== current; });
-      setIndex(idx); lsd(PFX + current);
+      var old = current;
+      var idx = getIndex().filter(function(m){ return m.id !== old; });
+      setIndex(idx); lsd(PFX + old);
+      if (window.ST.photosDrop) window.ST.photosDrop(old);   // drop this ticket's photos
       if (idx.length) { current = idx[0].id; loadDraft(current); }
-      else { current = genId(); clearForm(); saveNow(); }
+      else { current = genId(); clearForm(); if (window.ST.photosNewFor) window.ST.photosNewFor(current); saveNow(); }
     }
 
     form.addEventListener('input', scheduleSave);
@@ -843,7 +965,7 @@
     var startId = ls(CUR), idx = getIndex();
     if (startId && ls(PFX + startId)) { current = startId; loadDraft(startId); }
     else if (idx.length && ls(PFX + idx[0].id)) { current = idx[0].id; loadDraft(idx[0].id); }
-    else { current = genId(); saveNow(); }
+    else { current = genId(); if (window.ST.photosNewFor) window.ST.photosNewFor(current); saveNow(); }
   })();
   </script>
 </body>
