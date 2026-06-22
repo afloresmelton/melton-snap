@@ -452,20 +452,13 @@
       if (dt) s += ' - ' + dt;
       return s;
     }
-    // The FILENAME is what iOS Mail actually shows as the subject for a file share
-    // (the share `title` is unreliable there), so make the filename = the cleaned
-    // subject — same string, just stripped of characters a filename can't hold.
+    // Mail clients are wildly inconsistent about which share field becomes the
+    // subject — some use `title`, some use the file NAME, and some (observed on the
+    // field iPads) use `text`. So we put the SAME clean subject string in all three.
+    // Whichever one the client picks, the subject is right. `text` is kept to a
+    // single line (no body note) so a text-as-subject client doesn't show a multi-
+    // line mess.
     function ticketName(){ return clean(ticketSubject()); }
-    // A real one-line body so the office keeps full context even if the platform
-    // mangles the subject (the body survives more reliably than the subject).
-    function ticketBody(){
-      var jn = fieldVal('jobName'), jno = fieldVal('jobNo'), dt = fieldVal('date');
-      var ctx = [];
-      if (jn) ctx.push(jn);
-      if (jno) ctx.push('Job ' + jno);
-      if (dt) ctx.push(dt);
-      return 'Completed Service Ticket attached.' + (ctx.length ? '\n\n' + ctx.join('  |  ') : '');
-    }
     function filledHtml(){
       var clone = document.documentElement.cloneNode(true);
       var live = document.querySelectorAll('input, textarea');
@@ -493,7 +486,7 @@
       var file = new File([blob], name, { type: 'text/html' });
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: ticketSubject(), text: ticketBody() });
+          await navigator.share({ files: [file], title: ticketSubject(), text: ticketSubject() });
           return;
         }
       } catch (e) { if (e && e.name === 'AbortError') return; }
