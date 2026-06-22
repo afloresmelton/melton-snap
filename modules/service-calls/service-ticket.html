@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Melton Service Ticket</title>
+<title>Ticket</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -243,7 +243,7 @@
       <span id="saveStatus" class="fc-status"></span>
     </div>
     <div class="fc-row fc-actions">
-      <button type="button" class="print-btn" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button>
+      <button type="button" id="printBtn" class="print-btn">&#128424;&nbsp; Print / Save as PDF</button>
       <button type="button" id="emailTicketBtn" class="email-btn">&#128231;&nbsp; Email Ticket</button>
       <label><input type="checkbox" id="toggleNotes" checked>
         Include <b>Notes</b> page (Page 3) &mdash; screen control, will not print</label>
@@ -445,11 +445,11 @@
     function fieldVal(key){ var el = document.querySelector('[data-tkt="' + key + '"]'); return el ? (el.value || '').trim() : ''; }
     function clean(s){ return (s || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').replace(/-{2,}/g, '-').trim(); }
     function ticketSubject(){
-      var jn = fieldVal('jobName'), jno = fieldVal('jobNo'), dt = fieldVal('date');
-      var s = 'Service Ticket';
-      if (jn) s += ' - ' + jn;
-      if (jno) s += ' (Job ' + jno + ')';
-      if (dt) s += ' - ' + dt;
+      var jno = fieldVal('jobNo'), jn = fieldVal('jobName'), dt = fieldVal('date');
+      var mid = [jno, jn].filter(Boolean).join(' ');   // "[Job #] [Job Name]"
+      var s = 'Ticket';
+      if (mid) s += ' - ' + mid;
+      if (dt) s += ' (' + dt + ')';
       return s;
     }
     // Mail clients are wildly inconsistent about which share field becomes the
@@ -478,6 +478,7 @@
       var cz = clone.querySelectorAll('#catDD, .cat-hint'); for (var z = 0; z < cz.length; z++) cz[z].parentNode.removeChild(cz[z]);
       var pz = clone.querySelectorAll('#photoControls, .photo-del'); for (var p = 0; p < pz.length; p++) pz[p].parentNode.removeChild(pz[p]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
+      var ttl = clone.querySelector('title'); if (ttl) ttl.textContent = ticketSubject();   // exported HTML's tab + its print-to-PDF name
       return '<!doctype html>\n' + clone.outerHTML;
     }
     btn.addEventListener('click', async function(){
@@ -495,6 +496,10 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
     });
+    // Print / Save-as-PDF: name the PDF after the ticket too (browsers use the
+    // document title as the suggested PDF filename).
+    var printBtn = document.getElementById('printBtn');
+    if (printBtn) printBtn.addEventListener('click', function(){ document.title = ticketSubject(); window.print(); });
   })();
   </script>
 
