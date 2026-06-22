@@ -206,6 +206,19 @@
                    border: none; border-radius: 5px; padding: 6px 14px; margin-right: 14px; }
   #formControls .email-btn:hover { background: #124c84; }
 
+  /* Exported (read-only) copy only: a screen-only Print bar + keep locked fields crisp.
+     #exportBar exists only in the emailed file; these rules are harmless on the live form. */
+  #exportBar { max-width: 8.5in; margin: 0 auto 14px; font-family: Arial, Helvetica, sans-serif;
+                font-size: 10pt; color: #444; background: #eef4fb; border: 1px solid #cfe0f2;
+                border-radius: 6px; padding: 9px 13px; display: flex; align-items: center; gap: 12px; }
+  #exportBar button { font: inherit; cursor: pointer; background: #1d6e56; color: #fff;
+                       border: none; border-radius: 5px; padding: 6px 14px; }
+  #exportBar button:hover { background: #155a45; }
+  #exportBar .exp-note { color: #777; }
+  /* readonly/disabled fields must stay full-black (browsers gray them by default) */
+  input[readonly], textarea[readonly] { color: #000; -webkit-text-fill-color: #000; opacity: 1; }
+  input:disabled, .cb:disabled { opacity: 1; }
+
   @media screen {
     html { background: #f4f4f4; }
     /* Scale-to-fit: the page is a fixed 8.5in; when the viewport is narrower,
@@ -226,6 +239,7 @@
     .sig-hint, #sigModal { display: none !important; }
     .cat-hint, .cat-dd { display: none !important; }
     #photoControls, .photo-del { display: none !important; }
+    #exportBar { display: none !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
@@ -478,6 +492,23 @@
       var cz = clone.querySelectorAll('#catDD, .cat-hint'); for (var z = 0; z < cz.length; z++) cz[z].parentNode.removeChild(cz[z]);
       var pz = clone.querySelectorAll('#photoControls, .photo-del'); for (var p = 0; p < pz.length; p++) pz[p].parentNode.removeChild(pz[p]);
       var ss = clone.querySelectorAll('script'); for (var j = 0; j < ss.length; j++) ss[j].parentNode.removeChild(ss[j]);
+      // LOCK the submitted copy so the office can't alter the record: text fields +
+      // textareas get readonly, checkboxes get disabled (their checked state is baked).
+      var locks = clone.querySelectorAll('input, textarea, select');
+      for (var L = 0; L < locks.length; L++) {
+        var le = locks[L], lt = (le.getAttribute('type') || '').toLowerCase();
+        if (le.tagName === 'TEXTAREA' || (lt !== 'checkbox' && lt !== 'radio')) le.setAttribute('readonly', '');
+        else le.setAttribute('disabled', '');
+      }
+      // add a screen-only Print / Save-as-PDF bar for the recipient. Inline onclick so
+      // it works in the script-free copy; @media print hides it (not in the PDF).
+      var ebody = clone.querySelector('body');
+      if (ebody) {
+        var ebar = document.createElement('div');
+        ebar.id = 'exportBar';
+        ebar.innerHTML = '<button type="button" onclick="window.print()">&#128424;&nbsp; Print / Save as PDF</button><span class="exp-note">Read-only copy of the submitted ticket</span>';
+        ebody.insertBefore(ebar, ebody.firstChild);
+      }
       var ttl = clone.querySelector('title'); if (ttl) ttl.textContent = ticketSubject();   // exported HTML's tab + its print-to-PDF name
       return '<!doctype html>\n' + clone.outerHTML;
     }
