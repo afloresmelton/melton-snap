@@ -240,6 +240,11 @@
     .cat-hint, .cat-dd { display: none !important; }
     #photoControls, .photo-del { display: none !important; }
     #exportBar { display: none !important; }
+    /* placeholders are screen-only hints — never print them (this also blanks the
+       Purch. Ord. "ABC-12345-67" hint in the Bluebeam PDF, which renders via print).
+       A value the tech actually types is NOT the placeholder, so it still prints. */
+    ::placeholder { color: transparent !important; opacity: 0 !important; }
+    input::placeholder, textarea::placeholder { color: transparent !important; opacity: 0 !important; }
     .page { box-shadow: none; margin: 0; page-break-after: always; }
     /* the true last-visible page is set to break-after:auto by renumber() (JS),
        which is display-aware; the dead .page:last-child rule was removed. */
