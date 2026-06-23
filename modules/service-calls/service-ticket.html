@@ -48,6 +48,8 @@
   .info.inline .lbl { display: inline-block; vertical-align: middle; margin-right: 12px; }
   .info.inline .cbinline { font-size: 10pt; vertical-align: middle; }
   .info.inline td.wstatus { white-space: nowrap; text-align: right; }
+  /* the Cust. PO row is its own table stacked flush under the main header */
+  .info.inline.po-row td { border-top: 0; }
   .cb { -webkit-appearance: none; appearance: none; position: relative;
          display: inline-block; width: 12px; height: 12px; border: 1px solid #000;
          margin: 0 5px 0 0; vertical-align: -2px; background: #fff; cursor: pointer; padding: 0; }
@@ -288,7 +290,9 @@
     <table class="grid info inline">
       <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:60%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td></tr>
       <tr><td class="field" colspan="3"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
-      <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Cust. PO:</span><input class="fin" type="text" data-tkt="custPO"></label></td><td class="field wstatus" colspan="2" style="width:80%"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
+    </table>
+    <table class="grid info inline po-row">
+      <tr><td class="field" style="width:100%"><label class="fcell"><span class="lbl">Cust. PO:</span><input class="fin" type="text" data-tkt="custPO"></label></td><td class="field wstatus"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
     </table>
 
     <table class="grid wgrid">
