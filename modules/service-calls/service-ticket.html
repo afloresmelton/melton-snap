@@ -47,7 +47,7 @@
   .info.inline td.field { height: 0.34in; vertical-align: middle; }
   .info.inline .lbl { display: inline-block; vertical-align: middle; margin-right: 12px; }
   .info.inline .cbinline { font-size: 10pt; vertical-align: middle; }
-  .info.inline td.wstatus { white-space: nowrap; }
+  .info.inline td.wstatus { white-space: nowrap; text-align: right; }
   .cb { -webkit-appearance: none; appearance: none; position: relative;
          display: inline-block; width: 12px; height: 12px; border: 1px solid #000;
          margin: 0 5px 0 0; vertical-align: -2px; background: #fff; cursor: pointer; padding: 0; }
@@ -73,6 +73,7 @@
   input.sigin { width: 100%; font-size: 11pt; }
   textarea.wta { display: block; width: 100%; height: 57.6pt; resize: none;
          font-size: 12pt; line-height: 1.2; }
+  textarea.wta-3 { height: 43.2pt; }   /* Work Requested: 3 lines instead of 4 */
   textarea.nta { display: block; width: 100%; height: 3.3in; resize: none;
          font-size: 12pt; line-height: 1.3; }
   ::placeholder { color: #bbb; opacity: 1; }
@@ -109,11 +110,8 @@
   .photo-add:hover { background: #124c84; }
   .ph-hint { font-size: 8.5pt; color: #888; margin-left: 10px; }
 
-  /* hours summary */
-  .hours td { height: 0.34in; vertical-align: middle; }
+  /* gray shade used by the Labor Breakdown total row */
   .shade { background: #efefef; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .hours .name { width: 34%; font-weight: bold; font-size: 9.5pt; }
-  .hours td b { font-size: 9.5pt; }
 
   /* labor */
   .labor th.lh { background: #efefef; -webkit-print-color-adjust: exact; print-color-adjust: exact;
@@ -122,6 +120,9 @@
   .labor tbody td { height: 0.26in; }
   .labor tbody td.r { width: 47%; }
   .labor tbody td:not(.r) { text-align: center; }
+  /* Total Hours = gray 11th row; label right-aligned + vertically centered with the totals */
+  .labor tbody tr.labor-total td { vertical-align: middle; }
+  .labor tbody td.tot-label { text-align: right; font-weight: bold; font-size: 9.5pt; }
 
   /* signature */
   .sign { margin-top: 19px; }
@@ -285,28 +286,18 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td><td class="field wstatus" style="width:70%"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
+      <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:60%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td></tr>
+      <tr><td class="field" colspan="3"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
+      <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Cust. PO:</span><input class="fin" type="text" data-tkt="custPO"></label></td><td class="field wstatus" colspan="2" style="width:80%"><span class="lbl">Work Status</span><span class="cbinline"><input type="checkbox" class="cb">Partial Complete &nbsp;&nbsp; <input type="checkbox" class="cb">Complete</span></td></tr>
     </table>
 
     <table class="grid wgrid">
       <tr><td class="wbox-title">Work Requested</td></tr>
-      <tr><td class="wbox"><textarea class="wta"></textarea></td></tr>
+      <tr><td class="wbox"><textarea class="wta wta-3"></textarea></td></tr>
       <tr><td class="wbox-title">Findings</td></tr>
       <tr><td class="wbox"><textarea class="wta"></textarea></td></tr>
       <tr><td class="wbox-title">Work Performed</td></tr>
       <tr><td class="wbox"><textarea class="wta"></textarea></td></tr>
-    </table>
-
-    <div class="seclbl">Total Hours</div>
-    <table class="grid hours">
-      <tr>
-        <td class="shade name">Total Hours</td>
-        <td class="shade"><b>ST</b> <input class="hin" type="text" readonly></td>
-        <td class="shade"><b>OT</b> <input class="hin" type="text" readonly></td>
-        <td class="shade"><b>DT</b> <input class="hin" type="text" readonly></td>
-      </tr>
     </table>
 
     <div class="seclbl">Labor Breakdown</div>
@@ -314,7 +305,9 @@
       <thead>
         <tr><th class="lh">Name</th><th class="lh">ST</th><th class="lh">OT</th><th class="lh">DT</th></tr>
       </thead>
-      <tbody><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr></tbody>
+      <tbody><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr><tr><td class="r"><input class="lin" type="text"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td><td><input class="lin num" type="text" inputmode="decimal"></td></tr>
+        <tr class="labor-total"><td class="r tot-label shade">Total Hours</td><td class="shade"><input class="hin" type="text" readonly></td><td class="shade"><input class="hin" type="text" readonly></td><td class="shade"><input class="hin" type="text" readonly></td></tr>
+      </tbody>
     </table>
 
     <table class="grid sign">
@@ -347,8 +340,8 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
+      <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:60%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td></tr>
+      <tr><td class="field" colspan="3"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
     </table>
 
     <div class="gap"></div>
@@ -389,8 +382,8 @@
     </div>
 
     <table class="grid info inline">
-      <tr><td class="field" style="width:30%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:70%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td></tr>
-      <tr><td class="field" colspan="2"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
+      <tr><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Job No.</span><input class="fin" type="text" data-tkt="jobNo"></label></td><td class="field" style="width:60%"><label class="fcell"><span class="lbl">Job Name</span><input class="fin" type="text" data-tkt="jobName"></label></td><td class="field" style="width:20%"><label class="fcell"><span class="lbl">Date</span><input class="fin" type="text" data-tkt="date"></label></td></tr>
+      <tr><td class="field" colspan="3"><label class="fcell"><span class="lbl">Address</span><input class="fin" type="text" data-tkt="address"></label></td></tr>
     </table>
 
     <div class="gap"></div>
@@ -569,21 +562,23 @@
         });
       });
     });
-    // Date defaults to today (still editable)
-    var dEl = document.querySelector('[data-tkt="date"]');
-    if (dEl && !dEl.value) {
+    // Date defaults to today (MM/DD/YY, still editable) on every page
+    var dEls = document.querySelectorAll('[data-tkt="date"]');
+    if (dEls.length) {
       var d = new Date();
       var mm = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
-      dEl.value = mm + '/' + dd + '/' + d.getFullYear();
+      var yy = String(d.getFullYear()).slice(-2);
+      dEls.forEach(function(el){ if (!el.value) el.value = mm + '/' + dd + '/' + yy; });
     }
   })();
   </script>
 
   <script>
   (function(){
-    var totals = document.querySelectorAll('.hours input.hin');   // [ST, OT, DT]
+    var totalRow = document.querySelector('.labor tbody tr.labor-total');
+    var totals = totalRow ? totalRow.querySelectorAll('input.hin') : [];   // [ST, OT, DT]
     if (totals.length < 3) return;
-    var rows = document.querySelectorAll('.labor tbody tr');
+    var rows = document.querySelectorAll('.labor tbody tr:not(.labor-total)');   // worker rows only
     function fmt(n){ n = Math.round(n * 100) / 100; return n ? String(n) : ''; }
     function recompute(){
       var sums = [0, 0, 0];
@@ -643,7 +638,7 @@
 
     function nowDate(){
       var d = new Date();
-      return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + d.getFullYear();
+      return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + String(d.getFullYear()).slice(-2);
     }
     function nowStamp(){
       var d = new Date();
@@ -922,7 +917,7 @@
     }
     function getIndex(){ try { return JSON.parse(ls(IDX)) || []; } catch(e){ return []; } }
     function setIndex(a){ lss(IDX, JSON.stringify(a)); }
-    function todayStr(){ var d = new Date(); return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + d.getFullYear(); }
+    function todayStr(){ var d = new Date(); return ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2) + '/' + String(d.getFullYear()).slice(-2); }
 
     function serialize(){
       var s = window.ST.getSig ? window.ST.getSig() : { sig: null, stamp: '' };
